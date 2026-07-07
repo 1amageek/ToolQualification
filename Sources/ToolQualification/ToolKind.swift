@@ -7,5 +7,6 @@ public enum ToolKind: String, Sendable, Hashable, Codable {
     case lvs
     case pex
     case maskIO
+    case planning
     case reporting
 }

@@ -6,6 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "ToolQualification", targets: ["ToolQualification"]),
+        .library(name: "ToolQualificationCLICore", targets: ["ToolQualificationCLICore"]),
+        .executable(name: "toolqualification", targets: ["ToolQualificationCLI"]),
     ],
     dependencies: [
         .package(path: "../XcircuitePackage"),
@@ -17,6 +19,18 @@ let package = Package(
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
+        .target(
+            name: "ToolQualificationCLICore",
+            dependencies: ["ToolQualification"]
+        ),
+        .executableTarget(
+            name: "ToolQualificationCLI",
+            dependencies: ["ToolQualificationCLICore"]
+        ),
         .testTarget(name: "ToolQualificationTests", dependencies: ["ToolQualification"]),
+        .testTarget(
+            name: "ToolQualificationCLICoreTests",
+            dependencies: ["ToolQualificationCLICore", "ToolQualification"]
+        ),
     ]
 )

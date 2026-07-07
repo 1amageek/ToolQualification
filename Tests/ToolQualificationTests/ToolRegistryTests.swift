@@ -4,14 +4,22 @@ import XcircuitePackage
 
 @Suite("Tool registry")
 struct ToolRegistryTests {
-    @Test func upsertReplacesDescriptorByToolID() {
+    @Test func upsertReplacesDescriptorByToolID() throws {
         var registry = ToolRegistry(descriptors: [
             makeDescriptor(toolID: "drc", level: .smokeChecked),
         ])
 
-        registry.upsert(makeDescriptor(toolID: "drc", level: .productionEligible))
+        try registry.upsert(makeDescriptor(toolID: "drc", level: .productionEligible))
 
         #expect(registry.descriptor(toolID: "drc")?.trustProfile.level == .productionEligible)
+    }
+
+    @Test func upsertRejectsInvalidToolID() {
+        var registry = ToolRegistry()
+
+        #expect(throws: XcircuitePackageError.self) {
+            try registry.upsert(makeDescriptor(toolID: "../drc", level: .smokeChecked))
+        }
     }
 
     @Test func selectReturnsMostQualifiedEligibleCandidate() {
@@ -77,13 +85,14 @@ struct ToolRegistryTests {
         }
     }
 
-    @Test func defaultInitializerDoesNotTrapOnDuplicateToolIDs() {
+    @Test func replaceUncheckedIsExplicitDuplicateReplacementPath() {
         let registry = ToolRegistry(descriptors: [
             makeDescriptor(toolID: "drc", level: .smokeChecked),
-            makeDescriptor(toolID: "drc", level: .productionEligible),
         ])
+        var mutable = registry
+        mutable.replaceUnchecked(makeDescriptor(toolID: "drc", level: .productionEligible))
 
-        #expect(registry.descriptor(toolID: "drc")?.trustProfile.level == .productionEligible)
+        #expect(mutable.descriptor(toolID: "drc")?.trustProfile.level == .productionEligible)
     }
 
     private func makeRequirement() -> ToolTrustRequirement {
@@ -109,8 +118,43 @@ struct ToolRegistryTests {
                     outputFormats: [.json]
                 ),
             ],
-            trustProfile: ToolTrustProfile(level: level),
+            trustProfile: ToolTrustProfile(level: level, evidence: evidenceSupporting(level: level)),
             environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
+        )
+    }
+
+    private func evidenceSupporting(level: ToolQualificationLevel) -> [ToolEvidence] {
+        switch level {
+        case .unknown:
+            return []
+        case .smokeChecked:
+            return [qualifiedEvidence("smoke-1", kind: .smoke)]
+        case .corpusChecked:
+            return [qualifiedEvidence("corpus-1", kind: .corpus)]
+        case .oracleChecked:
+            return [
+                qualifiedEvidence("corpus-1", kind: .corpus),
+                qualifiedEvidence("oracle-1", kind: .oracle),
+            ]
+        case .productionEligible:
+            return [
+                qualifiedEvidence("corpus-1", kind: .corpus),
+                qualifiedEvidence("oracle-1", kind: .oracle),
+                qualifiedEvidence("production-approval-1", kind: .productionApproval),
+            ]
+        }
+    }
+
+    private func qualifiedEvidence(_ evidenceID: String, kind: ToolEvidenceKind) -> ToolEvidence {
+        ToolEvidence(
+            evidenceID: evidenceID,
+            kind: kind,
+            qualification: ToolEvidenceQualificationSummary(
+                qualified: true,
+                policyID: "unit-test-policy",
+                observedMetrics: ["passRate": 1],
+                observedCounts: ["caseCount": 1]
+            )
         )
     }
 }

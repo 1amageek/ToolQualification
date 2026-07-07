@@ -5,11 +5,11 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
     public private(set) var descriptors: [String: ToolDescriptor]
 
     public init(descriptors: [ToolDescriptor] = []) {
-        var descriptorsByID: [String: ToolDescriptor] = [:]
-        for descriptor in descriptors {
-            descriptorsByID[descriptor.toolID] = descriptor
+        do {
+            self = try ToolRegistry(validating: descriptors)
+        } catch {
+            preconditionFailure("Invalid tool registry descriptors: \(error)")
         }
-        self.descriptors = descriptorsByID
     }
 
     public init(validating descriptors: [ToolDescriptor]) throws {
@@ -29,7 +29,12 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
         descriptors[toolID]
     }
 
-    public mutating func upsert(_ descriptor: ToolDescriptor) {
+    public mutating func upsert(_ descriptor: ToolDescriptor) throws {
+        try XcircuiteIdentifierValidator().validate(descriptor.toolID, kind: .toolID)
+        descriptors[descriptor.toolID] = descriptor
+    }
+
+    public mutating func replaceUnchecked(_ descriptor: ToolDescriptor) {
         descriptors[descriptor.toolID] = descriptor
     }
 

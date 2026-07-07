@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import ToolQualification
 import XcircuitePackage
@@ -34,6 +35,21 @@ struct ToolTrustEvaluatorTests {
         #expect(decision.diagnostics.contains { $0.code == "INSUFFICIENT_TRUST_LEVEL" })
     }
 
+    @Test func declaredProductionLevelWithoutSupportingEvidenceIsRejected() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(minimumLevel: .corpusChecked)
+        let health = ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed)
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "MISSING_REQUIRED_EVIDENCE" })
+    }
+
     @Test func failedHealthCheckIsRejected() {
         let descriptor = makeDescriptor(level: .productionEligible)
         let requirement = makeRequirement(minimumLevel: .corpusChecked)
@@ -57,6 +73,40 @@ struct ToolTrustEvaluatorTests {
 
         #expect(decision.status == .rejected)
         #expect(decision.diagnostics.contains { $0.code == "HEALTH_CHECK_FAILED" })
+    }
+
+    @Test func mismatchedHealthCheckToolIDIsRejectedAndEvidenceIgnored() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: "external-drc",
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "external-corpus",
+                    kind: .corpus,
+                    qualification: ToolEvidenceQualificationSummary(
+                        qualified: true,
+                        observedMetrics: ["passRate": 1],
+                        observedCounts: ["caseCount": 12]
+                    )
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == ToolTrustDecisionStatus.rejected)
+        #expect(decision.diagnostics.contains { $0.code == "HEALTH_CHECK_TOOL_ID_MISMATCH" })
+        #expect(decision.diagnostics.contains { $0.code == "HEALTH_CHECK_REQUIRED" })
+        #expect(decision.diagnostics.contains { $0.code == "MISSING_REQUIRED_EVIDENCE" })
     }
 
     @Test func missingCapabilityIsRejected() {
@@ -107,18 +157,414 @@ struct ToolTrustEvaluatorTests {
         #expect(decision.diagnostics.contains { $0.code == "MISSING_INPUT_FORMAT" })
     }
 
-    private func makeRequirement(minimumLevel: ToolQualificationLevel) -> ToolTrustRequirement {
+    @Test func requiredEvidenceKindIsRejectedWhenMissing() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(evidenceID: "smoke-1", kind: .smoke),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "MISSING_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredEvidenceKindAllowsEligibleTool() {
+        let descriptor = makeDescriptor(level: .productionEligible)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredEvidenceKinds: [.corpus, .healthCheck]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(evidenceID: "corpus-1", kind: .corpus),
+                ToolEvidence(evidenceID: "health-1", kind: .healthCheck),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .eligible)
+        #expect(!decision.diagnostics.contains { $0.severity == .error })
+    }
+
+    @Test func requiredQualifiedEvidenceKindIsRejectedWhenEvidenceIsMissing() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed)
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "MISSING_REQUIRED_EVIDENCE" })
+        #expect(!decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredQualifiedEvidenceKindIsRejectedWhenQualificationIsMissing() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(evidenceID: "corpus-1", kind: .corpus),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredQualifiedEvidenceKindIsRejectedWhenQualificationFailed() {
+        let descriptor = makeDescriptor(level: .productionEligible, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-1",
+                    kind: .corpus,
+                    qualification: ToolEvidenceQualificationSummary(
+                        qualified: false,
+                        observedMetrics: ["passRate": 0.75],
+                        failureCodes: ["pass_rate_below_minimum"]
+                    )
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredQualifiedEvidenceKindRejectsBarePassingFlagWithoutEvaluationSupport() {
+        let descriptor = makeDescriptor(level: .corpusChecked, evidence: [])
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-bare",
+                    kind: .corpus,
+                    qualification: ToolEvidenceQualificationSummary(qualified: true)
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredQualifiedEvidenceKindAllowsPassingTrustProfileEvidence() {
+        let descriptor = makeDescriptor(
+            level: .corpusChecked,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-1",
+                    kind: .corpus,
+                    qualification: ToolEvidenceQualificationSummary(
+                        qualified: true,
+                        observedMetrics: [
+                            "passRate": 1,
+                            "durationBudgetPassRate": 1,
+                        ],
+                        observedCounts: ["caseCount": 12]
+                    )
+                ),
+            ]
+        )
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus]
+        )
+        let health = ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed)
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .eligible)
+        #expect(!decision.diagnostics.contains { $0.severity == .error })
+    }
+
+    @Test func requiredQualifiedEvidenceKindRejectsStalePassingEvidence() {
+        let evaluatedAt = Date(timeIntervalSince1970: 1_000)
+        let descriptor = makeDescriptor(level: .corpusChecked)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus],
+            maximumEvidenceAgeSeconds: 60
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-1",
+                    kind: .corpus,
+                    qualification: passingQualificationSummary(),
+                    checkedAt: Date(timeIntervalSince1970: 900)
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health,
+            evaluatedAt: evaluatedAt
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "STALE_REQUIRED_EVIDENCE" })
+        #expect(!decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func requiredQualifiedEvidenceKindAllowsFreshPassingEvidence() {
+        let evaluatedAt = Date(timeIntervalSince1970: 1_000)
+        let descriptor = makeDescriptor(level: .corpusChecked)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredQualifiedEvidenceKinds: [.corpus],
+            maximumEvidenceAgeSeconds: 60
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-1",
+                    kind: .corpus,
+                    qualification: passingQualificationSummary(),
+                    checkedAt: Date(timeIntervalSince1970: 960)
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health,
+            evaluatedAt: evaluatedAt
+        )
+
+        #expect(decision.status == .eligible)
+        #expect(!decision.diagnostics.contains { $0.severity == .error })
+    }
+
+    @Test func requiredEvidenceKindRejectsMissingTimestampWhenFreshnessIsRequired() {
+        let evaluatedAt = Date(timeIntervalSince1970: 1_000)
+        let descriptor = makeDescriptor(level: .corpusChecked)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredEvidenceKinds: [.corpus],
+            maximumEvidenceAgeSeconds: 60
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(evidenceID: "corpus-1", kind: .corpus),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health,
+            evaluatedAt: evaluatedAt
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "STALE_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func futureCheckedAtIsRejectedWithExplicitFutureDiagnostic() {
+        let evaluatedAt = Date(timeIntervalSince1970: 1_000)
+        let descriptor = makeDescriptor(level: .corpusChecked)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredEvidenceKinds: [.corpus],
+            maximumEvidenceAgeSeconds: 60
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "corpus-1",
+                    kind: .corpus,
+                    qualification: passingQualificationSummary(),
+                    checkedAt: Date(timeIntervalSince1970: 2_000)
+                ),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health,
+            evaluatedAt: evaluatedAt
+        )
+
+        #expect(decision.status == .rejected)
+        let staleDiagnostic = decision.diagnostics.first { $0.code == "STALE_REQUIRED_EVIDENCE" }
+        #expect(staleDiagnostic != nil)
+        #expect(staleDiagnostic?.message.contains("checkedAt is in the future") == true)
+        #expect(staleDiagnostic?.message.contains("1970-01-01T00:33:20Z") == true)
+    }
+
+    @Test func invalidEvidenceFreshnessRequirementIsRejected() {
+        let descriptor = makeDescriptor(level: .productionEligible)
+        let requirement = makeRequirement(
+            minimumLevel: .corpusChecked,
+            requiredEvidenceKinds: [.corpus],
+            maximumEvidenceAgeSeconds: -1
+        )
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            evidence: [
+                ToolEvidence(evidenceID: "corpus-1", kind: .corpus),
+            ]
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains {
+            $0.code == "INVALID_EVIDENCE_FRESHNESS_REQUIREMENT"
+        })
+    }
+
+    @Test func legacyRequirementJSONDefaultsEvidenceFields() throws {
+        let json = """
+        {
+          "kind": "drc",
+          "operationID": "run-drc",
+          "minimumLevel": "corpusChecked",
+          "requiredInputFormats": ["OASIS"],
+          "requiredOutputFormats": ["JSON"]
+        }
+        """
+
+        let requirement = try JSONDecoder().decode(
+            ToolTrustRequirement.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(requirement.requiredEvidenceKinds.isEmpty)
+        #expect(requirement.requiredQualifiedEvidenceKinds.isEmpty)
+        #expect(requirement.maximumEvidenceAgeSeconds == nil)
+        #expect(requirement.requirePassingHealthCheck)
+    }
+
+    @Test func requirementJSONDecodesEvidenceFreshness() throws {
+        let json = """
+        {
+          "kind": "drc",
+          "operationID": "run-drc",
+          "minimumLevel": "corpusChecked",
+          "requiredInputFormats": ["OASIS"],
+          "requiredOutputFormats": ["JSON"],
+          "requiredEvidenceKinds": ["corpus"],
+          "requiredQualifiedEvidenceKinds": ["oracle"],
+          "maximumEvidenceAgeSeconds": 3600,
+          "requirePassingHealthCheck": true
+        }
+        """
+
+        let requirement = try JSONDecoder().decode(
+            ToolTrustRequirement.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(requirement.requiredEvidenceKinds == [.corpus])
+        #expect(requirement.requiredQualifiedEvidenceKinds == [.oracle])
+        #expect(requirement.maximumEvidenceAgeSeconds == 3_600)
+    }
+
+    private func makeRequirement(
+        minimumLevel: ToolQualificationLevel,
+        requiredEvidenceKinds: [ToolEvidenceKind] = [],
+        requiredQualifiedEvidenceKinds: [ToolEvidenceKind] = [],
+        maximumEvidenceAgeSeconds: TimeInterval? = nil
+    ) -> ToolTrustRequirement {
         ToolTrustRequirement(
             kind: .drc,
             operationID: "run-drc",
             minimumLevel: minimumLevel,
             requiredInputFormats: [.oasis],
-            requiredOutputFormats: [.json]
+            requiredOutputFormats: [.json],
+            requiredEvidenceKinds: requiredEvidenceKinds,
+            requiredQualifiedEvidenceKinds: requiredQualifiedEvidenceKinds,
+            maximumEvidenceAgeSeconds: maximumEvidenceAgeSeconds
         )
     }
 
     private func makeDescriptor(
         level: ToolQualificationLevel,
+        evidence: [ToolEvidence]? = nil,
         capabilities: [ToolCapability] = [
             ToolCapability(
                 operationID: "run-drc",
@@ -128,13 +574,55 @@ struct ToolTrustEvaluatorTests {
         ]
     ) -> ToolDescriptor {
         ToolDescriptor(
-            toolID: "pure-swift-drc",
-            displayName: "Pure Swift DRC",
+            toolID: "native-drc",
+            displayName: "Native DRC",
             kind: .drc,
             version: "1.0.0",
             capabilities: capabilities,
-            trustProfile: ToolTrustProfile(level: level),
+            trustProfile: ToolTrustProfile(
+                level: level,
+                evidence: evidence ?? evidenceSupporting(level: level)
+            ),
             environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
+        )
+    }
+
+    private func evidenceSupporting(level: ToolQualificationLevel) -> [ToolEvidence] {
+        switch level {
+        case .unknown:
+            return []
+        case .smokeChecked:
+            return [qualifiedEvidence("smoke-1", kind: .smoke)]
+        case .corpusChecked:
+            return [qualifiedEvidence("corpus-1", kind: .corpus)]
+        case .oracleChecked:
+            return [
+                qualifiedEvidence("corpus-1", kind: .corpus),
+                qualifiedEvidence("oracle-1", kind: .oracle),
+            ]
+        case .productionEligible:
+            return [
+                qualifiedEvidence("corpus-1", kind: .corpus),
+                qualifiedEvidence("oracle-1", kind: .oracle),
+                qualifiedEvidence("production-approval-1", kind: .productionApproval),
+            ]
+        }
+    }
+
+    private func qualifiedEvidence(_ evidenceID: String, kind: ToolEvidenceKind) -> ToolEvidence {
+        ToolEvidence(
+            evidenceID: evidenceID,
+            kind: kind,
+            qualification: passingQualificationSummary()
+        )
+    }
+
+    private func passingQualificationSummary() -> ToolEvidenceQualificationSummary {
+        ToolEvidenceQualificationSummary(
+            qualified: true,
+            policyID: "unit-test-policy",
+            observedMetrics: ["passRate": 1],
+            observedCounts: ["caseCount": 1]
         )
     }
 }

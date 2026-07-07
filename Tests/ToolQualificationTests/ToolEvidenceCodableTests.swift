@@ -1,0 +1,53 @@
+import Foundation
+import Testing
+import ToolQualification
+
+@Suite("Tool evidence Codable")
+struct ToolEvidenceCodableTests {
+    @Test func decodesISO8601CheckedAt() throws {
+        let json = """
+        {
+          "evidenceID": "corpus-1",
+          "kind": "corpus",
+          "checkedAt": "2026-06-18T00:00:00Z"
+        }
+        """
+
+        let evidence = try JSONDecoder().decode(
+            ToolEvidence.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(evidence.checkedAt?.timeIntervalSince1970 == 1_781_740_800)
+    }
+
+    @Test func decodesLegacyNumericCheckedAt() throws {
+        let json = """
+        {
+          "evidenceID": "corpus-1",
+          "kind": "corpus",
+          "checkedAt": 0
+        }
+        """
+
+        let evidence = try JSONDecoder().decode(
+            ToolEvidence.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(evidence.checkedAt == Date(timeIntervalSinceReferenceDate: 0))
+    }
+
+    @Test func encodesCheckedAtAsISO8601() throws {
+        let evidence = ToolEvidence(
+            evidenceID: "corpus-1",
+            kind: .corpus,
+            checkedAt: Date(timeIntervalSince1970: 1_781_740_800)
+        )
+
+        let data = try JSONEncoder().encode(evidence)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(object["checkedAt"] as? String == "2026-06-18T00:00:00.000Z")
+    }
+}
