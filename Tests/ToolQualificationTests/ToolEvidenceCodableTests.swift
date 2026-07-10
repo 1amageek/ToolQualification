@@ -21,7 +21,7 @@ struct ToolEvidenceCodableTests {
         #expect(evidence.checkedAt?.timeIntervalSince1970 == 1_781_740_800)
     }
 
-    @Test func decodesLegacyNumericCheckedAt() throws {
+    @Test func rejectsNumericCheckedAt() throws {
         let json = """
         {
           "evidenceID": "corpus-1",
@@ -30,12 +30,12 @@ struct ToolEvidenceCodableTests {
         }
         """
 
-        let evidence = try JSONDecoder().decode(
-            ToolEvidence.self,
-            from: Data(json.utf8)
-        )
-
-        #expect(evidence.checkedAt == Date(timeIntervalSinceReferenceDate: 0))
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                ToolEvidence.self,
+                from: Data(json.utf8)
+            )
+        }
     }
 
     @Test func encodesCheckedAtAsISO8601() throws {

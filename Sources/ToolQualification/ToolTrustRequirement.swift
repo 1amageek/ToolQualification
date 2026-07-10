@@ -51,29 +51,29 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         self.kind = try container.decode(ToolKind.self, forKey: .kind)
         self.operationID = try container.decode(String.self, forKey: .operationID)
         self.minimumLevel = try container.decode(ToolQualificationLevel.self, forKey: .minimumLevel)
-        self.requiredInputFormats = try container.decodeIfPresent(
+        self.requiredInputFormats = try container.decode(
             [XcircuiteFileFormat].self,
             forKey: .requiredInputFormats
-        ) ?? []
-        self.requiredOutputFormats = try container.decodeIfPresent(
+        )
+        self.requiredOutputFormats = try container.decode(
             [XcircuiteFileFormat].self,
             forKey: .requiredOutputFormats
-        ) ?? []
-        self.requiredEvidenceKinds = try container.decodeIfPresent(
+        )
+        self.requiredEvidenceKinds = try container.decode(
             [ToolEvidenceKind].self,
             forKey: .requiredEvidenceKinds
-        ) ?? []
-        self.requiredQualifiedEvidenceKinds = try container.decodeIfPresent(
+        )
+        self.requiredQualifiedEvidenceKinds = try container.decode(
             [ToolEvidenceKind].self,
             forKey: .requiredQualifiedEvidenceKinds
-        ) ?? []
+        )
         self.maximumEvidenceAgeSeconds = try container.decodeIfPresent(
             TimeInterval.self,
             forKey: .maximumEvidenceAgeSeconds
         )
-        self.requirePassingHealthCheck = try container.decodeIfPresent(
+        self.requirePassingHealthCheck = try container.decode(
             Bool.self,
             forKey: .requirePassingHealthCheck
-        ) ?? true
+        )
     }
 }

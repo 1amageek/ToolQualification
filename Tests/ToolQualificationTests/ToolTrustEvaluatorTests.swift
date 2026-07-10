@@ -497,7 +497,7 @@ struct ToolTrustEvaluatorTests {
         })
     }
 
-    @Test func legacyRequirementJSONDefaultsEvidenceFields() throws {
+    @Test func requirementJSONRejectsMissingEvidenceFields() throws {
         let json = """
         {
           "kind": "drc",
@@ -508,15 +508,12 @@ struct ToolTrustEvaluatorTests {
         }
         """
 
-        let requirement = try JSONDecoder().decode(
-            ToolTrustRequirement.self,
-            from: Data(json.utf8)
-        )
-
-        #expect(requirement.requiredEvidenceKinds.isEmpty)
-        #expect(requirement.requiredQualifiedEvidenceKinds.isEmpty)
-        #expect(requirement.maximumEvidenceAgeSeconds == nil)
-        #expect(requirement.requirePassingHealthCheck)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                ToolTrustRequirement.self,
+                from: Data(json.utf8)
+            )
+        }
     }
 
     @Test func requirementJSONDecodesEvidenceFreshness() throws {

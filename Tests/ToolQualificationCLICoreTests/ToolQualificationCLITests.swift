@@ -85,6 +85,10 @@ struct ToolQualificationCLITests {
           "kind": "\(kind)",
           "operationID": "\(operationID)",
           "minimumLevel": "\(minimumLevel)",
+          "requiredInputFormats": [],
+          "requiredOutputFormats": [],
+          "requiredEvidenceKinds": [],
+          "requiredQualifiedEvidenceKinds": [],
           "requirePassingHealthCheck": \(requirePassingHealthCheck)
         }
         """

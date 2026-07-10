@@ -65,38 +65,15 @@ public struct ToolEvidence: Sendable, Hashable, Codable {
         if try container.decodeNil(forKey: .checkedAt) {
             return nil
         }
-        do {
-            let string = try container.decode(String.self, forKey: .checkedAt)
-            if let date = iso8601Date(from: string) {
-                return date
-            }
+        let string = try container.decode(String.self, forKey: .checkedAt)
+        guard let date = iso8601Date(from: string) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .checkedAt,
                 in: container,
                 debugDescription: "checkedAt must be an ISO 8601 timestamp."
             )
-        } catch let stringDecodingError as DecodingError {
-            if case .dataCorrupted = stringDecodingError {
-                throw stringDecodingError
-            }
         }
-
-        do {
-            let seconds = try container.decode(Double.self, forKey: .checkedAt)
-            return Date(timeIntervalSinceReferenceDate: seconds)
-        } catch let numericDecodingError as DecodingError {
-            if case .dataCorrupted = numericDecodingError {
-                throw numericDecodingError
-            }
-        } catch {
-            throw error
-        }
-
-        throw DecodingError.dataCorruptedError(
-            forKey: .checkedAt,
-            in: container,
-            debugDescription: "checkedAt must be an ISO 8601 timestamp or a legacy numeric Date value."
-        )
+        return date
     }
 
     private static func iso8601Date(from string: String) -> Date? {
