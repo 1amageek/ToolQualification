@@ -162,7 +162,12 @@ public struct ToolTrustEvaluator: Sendable {
             guard !freshCandidates.isEmpty else {
                 return false
             }
-            return !freshCandidates.contains { $0.hasPassingQualificationSupport }
+            return !freshCandidates.contains {
+                $0.hasPassingQualificationSupport(
+                    requiredScope: requirement.qualificationScope,
+                    requireIndependentQualificationEvidence: requirement.requireIndependentQualificationEvidence
+                )
+            }
         }
         if !unqualifiedEvidence.isEmpty {
             diagnostics.append(ToolDiagnostic(

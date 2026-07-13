@@ -11,6 +11,8 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
     public var requiredQualifiedEvidenceKinds: [ToolEvidenceKind]
     public var maximumEvidenceAgeSeconds: TimeInterval?
     public var requirePassingHealthCheck: Bool
+    public var qualificationScope: ToolQualificationScope?
+    public var requireIndependentQualificationEvidence: Bool
 
     public init(
         kind: ToolKind,
@@ -21,7 +23,9 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         requiredEvidenceKinds: [ToolEvidenceKind] = [],
         requiredQualifiedEvidenceKinds: [ToolEvidenceKind] = [],
         maximumEvidenceAgeSeconds: TimeInterval? = nil,
-        requirePassingHealthCheck: Bool = true
+        requirePassingHealthCheck: Bool = true,
+        qualificationScope: ToolQualificationScope? = nil,
+        requireIndependentQualificationEvidence: Bool = false
     ) {
         self.kind = kind
         self.operationID = operationID
@@ -32,6 +36,8 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         self.requiredQualifiedEvidenceKinds = requiredQualifiedEvidenceKinds
         self.maximumEvidenceAgeSeconds = maximumEvidenceAgeSeconds
         self.requirePassingHealthCheck = requirePassingHealthCheck
+        self.qualificationScope = qualificationScope
+        self.requireIndependentQualificationEvidence = requireIndependentQualificationEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -44,6 +50,8 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         case requiredQualifiedEvidenceKinds
         case maximumEvidenceAgeSeconds
         case requirePassingHealthCheck
+        case qualificationScope
+        case requireIndependentQualificationEvidence
     }
 
     public init(from decoder: Decoder) throws {
@@ -75,5 +83,13 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
             Bool.self,
             forKey: .requirePassingHealthCheck
         )
+        self.qualificationScope = try container.decodeIfPresent(
+            ToolQualificationScope.self,
+            forKey: .qualificationScope
+        )
+        self.requireIndependentQualificationEvidence = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .requireIndependentQualificationEvidence
+        ) ?? false
     }
 }

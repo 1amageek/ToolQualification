@@ -50,4 +50,23 @@ struct ToolEvidenceCodableTests {
 
         #expect(object["checkedAt"] as? String == "2026-06-18T00:00:00.000Z")
     }
+
+    @Test func legacyQualificationSummaryDefaultsIndependenceToFalse() throws {
+        let json = """
+        {
+          "qualified": true,
+          "observedMetrics": {"passRate": 1.0},
+          "observedCounts": {"caseCount": 3},
+          "failureCodes": []
+        }
+        """
+
+        let summary = try JSONDecoder().decode(
+            ToolEvidenceQualificationSummary.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(!summary.independenceVerified)
+        #expect(summary.qualificationID == nil)
+    }
 }

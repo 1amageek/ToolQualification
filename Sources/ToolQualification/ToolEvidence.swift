@@ -101,10 +101,27 @@ public struct ToolEvidence: Sendable, Hashable, Codable {
 
 public extension ToolEvidence {
     var hasPassingQualificationSupport: Bool {
+        hasPassingQualificationSupport(requiredScope: nil)
+    }
+
+    func hasPassingQualificationSupport(
+        requiredScope: ToolQualificationScope?,
+        requireIndependentQualificationEvidence: Bool = false
+    ) -> Bool {
         guard let qualification,
               qualification.qualified,
               qualification.failureCodes.isEmpty else {
             return false
+        }
+        if requireIndependentQualificationEvidence,
+           !qualification.independenceVerified {
+            return false
+        }
+        if let requiredScope {
+            guard requiredScope.isComplete,
+                  qualification.scope == requiredScope else {
+                return false
+            }
         }
 
         if let artifact,

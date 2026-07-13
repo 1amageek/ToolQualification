@@ -559,6 +559,131 @@ struct ToolTrustEvaluatorTests {
         )
     }
 
+    @Test func qualificationScopeMustMatchRequestedBuildAndDeck() {
+        let observedScope = ToolQualificationScope(
+            implementationID: "native-lvs",
+            binaryDigest: "build-a",
+            algorithmVersion: "graph-v2",
+            processProfileID: "sky130A",
+            deckDigest: "deck-a"
+        )
+        let requiredScope = ToolQualificationScope(
+            implementationID: "native-lvs",
+            binaryDigest: "build-b",
+            algorithmVersion: "graph-v2",
+            processProfileID: "sky130A",
+            deckDigest: "deck-a"
+        )
+        let evidence = ToolEvidence(
+            evidenceID: "scoped-corpus",
+            kind: .corpus,
+            qualification: ToolEvidenceQualificationSummary(
+                qualified: true,
+                policyID: "production-lvs",
+                observedMetrics: ["passRate": 1],
+                observedCounts: ["caseCount": 100],
+                scope: observedScope
+            )
+        )
+        let descriptor = makeDescriptor(level: .corpusChecked, evidence: [evidence])
+        let requirement = ToolTrustRequirement(
+            kind: .drc,
+            operationID: "run-drc",
+            minimumLevel: .corpusChecked,
+            requiredInputFormats: [.oasis],
+            requiredOutputFormats: [.json],
+            qualificationScope: requiredScope
+        )
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed)
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func independentQualificationEvidenceIsRequiredWhenRequested() {
+        let descriptor = makeDescriptor(
+            level: .productionEligible,
+            evidence: [
+                ToolEvidence(
+                    evidenceID: "production-approval",
+                    kind: .productionApproval,
+                    qualification: ToolEvidenceQualificationSummary(
+                        qualified: true,
+                        scope: ToolQualificationScope(
+                            implementationID: "native-drc",
+                            binaryDigest: "binary",
+                            algorithmVersion: "algorithm",
+                            processProfileID: "process",
+                            deckDigest: "deck"
+                        )
+                    )
+                )
+            ]
+        )
+        let requirement = ToolTrustRequirement(
+            kind: .drc,
+            operationID: "run-drc",
+            minimumLevel: .productionEligible,
+            requiredEvidenceKinds: [.productionApproval],
+            requiredQualifiedEvidenceKinds: [.productionApproval],
+            qualificationScope: ToolQualificationScope(
+                implementationID: "native-drc",
+                binaryDigest: "binary",
+                algorithmVersion: "algorithm",
+                processProfileID: "process",
+                deckDigest: "deck"
+            ),
+            requireIndependentQualificationEvidence: true
+        )
+
+        let decision = ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: requirement,
+            health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed)
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "UNQUALIFIED_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func processQualificationEvidenceRequiresIndependentScopedEvidence() {
+        let scope = ToolQualificationScope(
+            implementationID: "native-drc",
+            binaryDigest: String(repeating: "a", count: 64),
+            algorithmVersion: "native-drc-v2",
+            processProfileID: "sky130",
+            deckDigest: String(repeating: "b", count: 64),
+            pdkID: "sky130A",
+            pdkDigest: String(repeating: "c", count: 64)
+        )
+        let evidence = ToolProcessQualificationEvidence(
+            qualificationID: "sky130-drc-production",
+            toolID: "native-drc",
+            scope: scope,
+            status: .qualified,
+            corpusEvidenceIDs: ["corpus-1"],
+            oracleEvidenceIDs: ["oracle-1"],
+            healthEvidenceIDs: ["health-1"],
+            approvalEvidenceIDs: ["approval-1"],
+            evidenceArtifactIDs: ["record.json"],
+            independenceVerified: true,
+            qualifiedAt: Date(timeIntervalSince1970: 100),
+            expiresAt: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(evidence.isStructurallyValid)
+        #expect(evidence.isQualified(at: Date(timeIntervalSince1970: 150), requirePDKScope: true))
+        #expect(!evidence.isQualified(at: Date(timeIntervalSince1970: 250), requirePDKScope: true))
+        let summary = evidence.summary(policyID: "release-policy")
+        #expect(summary.qualificationID == "sky130-drc-production")
+        #expect(summary.independenceVerified)
+        #expect(summary.scope == scope)
+    }
+
     private func makeDescriptor(
         level: ToolQualificationLevel,
         evidence: [ToolEvidence]? = nil,
