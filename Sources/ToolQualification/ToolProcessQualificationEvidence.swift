@@ -98,4 +98,98 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     private static func sortedUnique(_ values: [String]) -> [String] {
         Array(Set(values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })).sorted()
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case qualificationID
+        case toolID
+        case scope
+        case status
+        case corpusEvidenceIDs
+        case oracleEvidenceIDs
+        case healthEvidenceIDs
+        case approvalEvidenceIDs
+        case evidenceArtifactIDs
+        case independenceVerified
+        case blockers
+        case qualifiedAt
+        case expiresAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        qualificationID = try container.decode(String.self, forKey: .qualificationID)
+        toolID = try container.decode(String.self, forKey: .toolID)
+        scope = try container.decode(ToolQualificationScope.self, forKey: .scope)
+        status = try container.decode(ToolProcessQualificationStatus.self, forKey: .status)
+        corpusEvidenceIDs = try container.decode([String].self, forKey: .corpusEvidenceIDs)
+        oracleEvidenceIDs = try container.decode([String].self, forKey: .oracleEvidenceIDs)
+        healthEvidenceIDs = try container.decode([String].self, forKey: .healthEvidenceIDs)
+        approvalEvidenceIDs = try container.decode([String].self, forKey: .approvalEvidenceIDs)
+        evidenceArtifactIDs = try container.decode([String].self, forKey: .evidenceArtifactIDs)
+        independenceVerified = try container.decode(Bool.self, forKey: .independenceVerified)
+        blockers = try container.decode([String].self, forKey: .blockers)
+        qualifiedAt = try Self.decodeDate(from: container, forKey: .qualifiedAt)
+        expiresAt = try Self.decodeDate(from: container, forKey: .expiresAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(qualificationID, forKey: .qualificationID)
+        try container.encode(toolID, forKey: .toolID)
+        try container.encode(scope, forKey: .scope)
+        try container.encode(status, forKey: .status)
+        try container.encode(corpusEvidenceIDs, forKey: .corpusEvidenceIDs)
+        try container.encode(oracleEvidenceIDs, forKey: .oracleEvidenceIDs)
+        try container.encode(healthEvidenceIDs, forKey: .healthEvidenceIDs)
+        try container.encode(approvalEvidenceIDs, forKey: .approvalEvidenceIDs)
+        try container.encode(evidenceArtifactIDs, forKey: .evidenceArtifactIDs)
+        try container.encode(independenceVerified, forKey: .independenceVerified)
+        try container.encode(blockers, forKey: .blockers)
+        try Self.encodeDate(qualifiedAt, into: &container, forKey: .qualifiedAt)
+        try Self.encodeDate(expiresAt, into: &container, forKey: .expiresAt)
+    }
+
+    private static func decodeDate<Key: CodingKey>(
+        from container: KeyedDecodingContainer<Key>,
+        forKey key: Key
+    ) throws -> Date? {
+        guard try !container.decodeNil(forKey: key) else {
+            return nil
+        }
+        do {
+            let string = try container.decode(String.self, forKey: key)
+            guard let date = iso8601Formatter.date(from: string) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "date must be a valid ISO-8601 timestamp"
+                )
+            }
+            return date
+        } catch DecodingError.typeMismatch {
+            let seconds = try container.decode(Double.self, forKey: key)
+            return Date(timeIntervalSinceReferenceDate: seconds)
+        }
+    }
+
+    private static func encodeDate<Key: CodingKey>(
+        _ date: Date?,
+        into container: inout KeyedEncodingContainer<Key>,
+        forKey key: Key
+    ) throws {
+        guard let date else {
+            try container.encodeNil(forKey: key)
+            return
+        }
+        try container.encode(iso8601Formatter.string(from: date), forKey: key)
+    }
+
+    private static var iso8601Formatter: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
 }

@@ -20,6 +20,7 @@ flow may use them. This package holds the contract only; it never launches a too
 | `ToolTrustEvaluator` / `ToolTrustDecision` | Eligible/rejected verdict from descriptor + requirement + health |
 | `ToolRegistry` | Registers descriptors, selects eligible candidates deterministically |
 | `ToolEnvironment` / `ToolAsset` | Executable paths, platform, required assets (PDK, rule decks) |
+| `ToolQualificationScope` / `ToolProcessQualificationEvidence` | Exact implementation, binary, algorithm, process, deck and optional PDK scope with freshness, independence and approval references |
 | `ToolQualificationCLICore` / `toolqualification` | Testable CLI core + headless executable |
 
 ## Rules
@@ -135,6 +136,25 @@ eligible first, then trust level descending, then toolID ascending.
 }
 ```
 
+### validate-process-evidence
+
+Validate a persisted process qualification record independently of a flow run.
+The command separates structural validity, PDK scope completeness, freshness,
+independence and approval blockers. It exits 2 for a readable but unqualified
+record, so a missing human or foundry approval cannot be interpreted as a pass:
+
+```bash
+toolqualification validate-process-evidence \
+  --evidence process-qualification-evidence.json \
+  --require-pdk \
+  --at 1782940000 \
+  --pretty
+```
+
+The JSON envelope includes the exact qualification scope and ISO-8601 timestamps.
+`ToolProcessQualificationEvidence` writes ISO-8601 dates and continues to read
+legacy Swift reference-date numeric timestamps for artifact compatibility.
+
 ### Exit codes and failure envelope
 
 | Exit | Meaning |
@@ -153,7 +173,8 @@ envelope with a stable code —
 Codes: `toolqualification.cli.invalid-arguments`,
 `toolqualification.cli.unreadable-file`, `toolqualification.cli.invalid-json`,
 `toolqualification.cli.internal-error`. `toolqualification --help`,
-`evaluate --help`, and `evaluate-registry --help` document the full surface.
+`evaluate --help`, `evaluate-registry --help`, and
+`validate-process-evidence --help` document the full surface.
 
 ## Build & test
 

@@ -328,6 +328,106 @@ struct ToolQualificationCLITests {
         #expect(envelope.evaluatedCount == 2)
     }
 
+    // MARK: - validate-process-evidence
+
+    @Test func validateProcessEvidenceReportsQualifiedScopedRecord() throws {
+        let directory = try makeTemporaryDirectory()
+        let evidencePath = try write(
+            """
+            {
+              "schemaVersion": 1,
+              "qualificationID": "sky130-pex-production-v1",
+              "toolID": "magic-pex",
+              "scope": {
+                "implementationID": "magic-pex",
+                "binaryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "algorithmVersion": "magic-8.3.652",
+                "processProfileID": "sky130A",
+                "deckDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "pdkID": "sky130A",
+                "pdkDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              },
+              "status": "qualified",
+              "corpusEvidenceIDs": ["corpus"],
+              "oracleEvidenceIDs": ["magic-pex"],
+              "healthEvidenceIDs": ["magic-health"],
+              "approvalEvidenceIDs": ["human-approval"],
+              "evidenceArtifactIDs": ["qualification.json"],
+              "independenceVerified": true,
+              "blockers": [],
+              "qualifiedAt": "1970-01-01T00:01:40.000Z",
+              "expiresAt": "1970-01-01T00:03:20.000Z"
+            }
+            """,
+            named: "process-evidence.json",
+            in: directory
+        )
+
+        let result = ToolQualificationCLI.invoke(arguments: [
+            "validate-process-evidence",
+            "--evidence", evidencePath,
+            "--require-pdk",
+            "--at", "150",
+        ])
+
+        #expect(result.exitCode == 0)
+        let envelope = try decodeStandardOutput(
+            ToolQualificationProcessEvidenceEnvelope.self,
+            from: result
+        )
+        #expect(envelope.qualified)
+        #expect(envelope.structurallyValid)
+        #expect(envelope.scope.pdkID == "sky130A")
+        #expect(envelope.diagnostics.isEmpty)
+    }
+
+    @Test func validateProcessEvidenceRejectsMissingPDKScope() throws {
+        let directory = try makeTemporaryDirectory()
+        let evidencePath = try write(
+            """
+            {
+              "schemaVersion": 1,
+              "qualificationID": "qualification",
+              "toolID": "native-tool",
+              "scope": {
+                "implementationID": "native-tool",
+                "binaryDigest": "binary",
+                "algorithmVersion": "algorithm",
+                "processProfileID": "process",
+                "deckDigest": "deck"
+              },
+              "status": "qualified",
+              "corpusEvidenceIDs": ["corpus"],
+              "oracleEvidenceIDs": ["oracle"],
+              "healthEvidenceIDs": ["health"],
+              "approvalEvidenceIDs": ["approval"],
+              "evidenceArtifactIDs": ["record"],
+              "independenceVerified": true,
+              "blockers": [],
+              "qualifiedAt": "1970-01-01T00:01:40.000Z",
+              "expiresAt": "1970-01-01T00:03:20.000Z"
+            }
+            """,
+            named: "process-evidence.json",
+            in: directory
+        )
+
+        let result = ToolQualificationCLI.invoke(arguments: [
+            "validate-process-evidence",
+            "--evidence", evidencePath,
+            "--require-pdk",
+            "--at", "150",
+        ])
+
+        #expect(result.exitCode == 2)
+        let envelope = try decodeStandardOutput(
+            ToolQualificationProcessEvidenceEnvelope.self,
+            from: result
+        )
+        #expect(!envelope.qualified)
+        #expect(envelope.diagnostics.contains("process-evidence-pdk-scope-incomplete"))
+    }
+
     // MARK: - Failure envelopes
 
     @Test func missingDescriptorFileEmitsUnreadableFileEnvelope() throws {
@@ -422,5 +522,10 @@ struct ToolQualificationCLITests {
         #expect(registry.standardOutput.contains("--descriptors"))
         #expect(registry.standardOutput.contains("--health-results"))
         #expect(registry.standardOutput.contains("selectedToolID"))
+
+        let process = ToolQualificationCLI.invoke(arguments: ["validate-process-evidence", "--help"])
+        #expect(process.exitCode == 0)
+        #expect(process.standardOutput.contains("--require-pdk"))
+        #expect(process.standardOutput.contains("--at"))
     }
 }

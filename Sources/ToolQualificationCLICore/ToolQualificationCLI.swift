@@ -58,6 +58,14 @@ public enum ToolQualificationCLI {
                 arguments: commandArguments
             )
             return try ToolQualificationEvaluateRegistryCommand().execute(options: options)
+        case "validate-process-evidence":
+            if commandArguments.contains("--help") {
+                return helpResult(validateProcessEvidenceHelp)
+            }
+            let options = try ToolQualificationValidateProcessEvidenceCommand.Options(
+                arguments: commandArguments
+            )
+            return try ToolQualificationValidateProcessEvidenceCommand().execute(options: options)
         default:
             throw ToolQualificationCLIError.invalidArguments(
                 "Unknown command: \(command). Run 'toolqualification --help' for usage."
@@ -96,6 +104,7 @@ public enum ToolQualificationCLI {
     USAGE:
       toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--pretty]
       toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--pretty]
+      toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
       toolqualification <command> --help
 
     COMMANDS:
@@ -103,6 +112,8 @@ public enum ToolQualificationCLI {
       evaluate-registry  Evaluate every ToolDescriptor in a JSON array, rank the
                          decisions (eligible first, trust level descending, toolID
                          ascending) and report the selected first-eligible tool.
+      validate-process-evidence  Validate a persisted process qualification record
+                         at a specific evaluation time and optional PDK scope.
 
     EXIT CODES:
       0  eligible (evaluate) / at least one eligible tool (evaluate-registry)
@@ -155,6 +166,24 @@ public enum ToolQualificationCLI {
     EXIT CODES:
       0  at least one eligible tool
       2  no eligible tool
+      1  invalid arguments, unreadable file, or invalid JSON
+    """
+
+    static let validateProcessEvidenceHelp = """
+    OVERVIEW: Validate a persisted ToolProcessQualificationEvidence record.
+
+    USAGE:
+      toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
+
+    OPTIONS:
+      --evidence <path.json>  Process qualification evidence JSON (required)
+      --require-pdk           Require a complete PDK ID and PDK digest in scope
+      --at <unix-seconds>     Evaluate freshness at this Unix timestamp; defaults to now
+      --pretty                Pretty-print the stdout JSON envelope
+
+    EXIT CODES:
+      0  evidence is qualified and fresh for the requested scope
+      2  evidence is readable but not qualified
       1  invalid arguments, unreadable file, or invalid JSON
     """
 }
