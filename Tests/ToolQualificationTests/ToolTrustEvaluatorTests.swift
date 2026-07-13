@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 import ToolQualification
-import XcircuitePackage
 
 @Suite("Tool trust evaluator")
 struct ToolTrustEvaluatorTests {

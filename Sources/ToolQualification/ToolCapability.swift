@@ -1,16 +1,16 @@
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct ToolCapability: Sendable, Hashable, Codable {
     public var operationID: String
-    public var inputFormats: [XcircuiteFileFormat]
-    public var outputFormats: [XcircuiteFileFormat]
+    public var inputFormats: [ArtifactFormat]
+    public var outputFormats: [ArtifactFormat]
     public var limitations: [String]
 
     public init(
         operationID: String,
-        inputFormats: [XcircuiteFileFormat] = [],
-        outputFormats: [XcircuiteFileFormat] = [],
+        inputFormats: [ArtifactFormat] = [],
+        outputFormats: [ArtifactFormat] = [],
         limitations: [String] = []
     ) {
         self.operationID = operationID

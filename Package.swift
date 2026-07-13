@@ -11,14 +11,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CircuiteFoundation"),
-        .package(path: "../XcircuitePackage"),
     ],
     targets: [
         .target(
             name: "ToolQualification",
             dependencies: [
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
         .target(
@@ -33,7 +31,6 @@ let package = Package(
             name: "ToolQualificationTests",
             dependencies: [
                 "ToolQualification",
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
         .testTarget(
@@ -41,7 +38,6 @@ let package = Package(
             dependencies: [
                 "ToolQualificationCLICore",
                 "ToolQualification",
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
     ]

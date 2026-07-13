@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import XcircuitePackage
+import CircuiteFoundation
 
 @testable import ToolQualification
 
@@ -11,10 +11,10 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let now = Date(timeIntervalSince1970: 1_000)
         let scope = makeScope()
         let artifacts = [
-            makeArtifact(id: "corpus-artifact"),
-            makeArtifact(id: "oracle-artifact"),
-            makeArtifact(id: "health-artifact"),
-            makeArtifact(id: "approval-artifact"),
+            try makeArtifact(id: "corpus-artifact"),
+            try makeArtifact(id: "oracle-artifact"),
+            try makeArtifact(id: "health-artifact"),
+            try makeArtifact(id: "approval-artifact"),
         ]
         let request = makeRequest(
             now: now,
@@ -35,7 +35,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         #expect(evidence.oracleEvidenceIDs == ["oracle"])
         #expect(evidence.healthEvidenceIDs == ["health"])
         #expect(evidence.approvalEvidenceIDs == ["approval"])
-        #expect(evidence.evidenceArtifactIDs == artifacts.map { $0.artifactID ?? $0.path }.sorted())
+        #expect(evidence.evidenceArtifactIDs == artifacts.map { $0.id.rawValue }.sorted())
         #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
     }
 
@@ -43,7 +43,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
     func rejectsUnqualifiedEvidence() throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let scope = makeScope()
-        let artifact = makeArtifact(id: "corpus-artifact")
+        let artifact = try makeArtifact(id: "corpus-artifact")
         let unqualified = ToolEvidence(
             evidenceID: "corpus",
             kind: .corpus,
@@ -77,8 +77,8 @@ struct ToolProcessQualificationEvidenceBuilderTests {
     func rejectsUnreferencedArtifact() throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let scope = makeScope()
-        let corpusArtifact = makeArtifact(id: "corpus-artifact")
-        let unusedArtifact = makeArtifact(id: "unused-artifact")
+        let corpusArtifact = try makeArtifact(id: "corpus-artifact")
+        let unusedArtifact = try makeArtifact(id: "unused-artifact")
         let request = makeRequest(
             now: now,
             scope: scope,
@@ -101,7 +101,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
     func rejectsExpiredQualificationWindow() throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let scope = makeScope()
-        let artifact = makeArtifact(id: "corpus-artifact")
+        let artifact = try makeArtifact(id: "corpus-artifact")
         let request = makeRequest(
             now: now.addingTimeInterval(-200),
             scope: scope,
@@ -123,7 +123,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
     private func makeRequest(
         now: Date,
         scope: ToolQualificationScope,
-        artifacts: [XcircuiteFileReference],
+        artifacts: [ArtifactReference],
         qualifiedModelIDs: [String] = [],
         corpus: [ToolEvidence],
         oracle: [ToolEvidence],
@@ -162,7 +162,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         id: String,
         kind: ToolEvidenceKind,
         scope: ToolQualificationScope,
-        artifact: XcircuiteFileReference
+        artifact: ArtifactReference
     ) -> ToolEvidence {
         ToolEvidence(
             evidenceID: id,
@@ -179,13 +179,19 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         )
     }
 
-    private func makeArtifact(id: String) -> XcircuiteFileReference {
-        XcircuiteFileReference(
-            artifactID: id,
-            path: "qualification/\(id).json",
-            kind: .report,
-            format: .json,
-            sha256: String(repeating: "d", count: 64),
+    private func makeArtifact(id: String) throws -> ArtifactReference {
+        ArtifactReference(
+            id: try ArtifactID(rawValue: id),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: "qualification/\(id).json"),
+                role: .output,
+                kind: .report,
+                format: .json
+            ),
+            digest: try ContentDigest(
+                algorithm: .sha256,
+                hexadecimalValue: String(repeating: "d", count: 64)
+            ),
             byteCount: 1
         )
     }

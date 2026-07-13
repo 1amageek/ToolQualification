@@ -1,6 +1,5 @@
 import Foundation
 import ToolQualification
-import XcircuitePackage
 
 public struct ToolQualificationBuildProcessEvidenceEnvelope: Sendable, Equatable, Codable {
     public var command: String

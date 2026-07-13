@@ -1,7 +1,7 @@
 import CircuiteFoundation
 import Foundation
 
-public struct ToolQualificationEngineAdapter: ToolQualificationEngine {
+public struct DefaultToolQualificationEngine: ToolQualificationEngine {
     private let evaluator: ToolTrustEvaluator
     private let producer: ProducerIdentity
     private let completionDate: @Sendable () -> Date

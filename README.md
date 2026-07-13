@@ -23,12 +23,11 @@ flowchart LR
   Result --> Diagnostics["DesignDiagnostic[]"]
 ```
 
-`ToolQualificationEngineAdapter` is the concrete asynchronous seam for flow
-integration. It delegates to the existing synchronous evaluator and preserves
-both evaluator and health diagnostics in Foundation form. The CLI remains
-usable independently, and `XcircuitePackage` models stay as compatibility input
-models until their project/run lifecycle responsibilities are migrated out of
-this package.
+`DefaultToolQualificationEngine` is the concrete asynchronous
+`ToolQualificationEngine` implementation for flow integration. It delegates to
+the synchronous evaluator and preserves both evaluator and health diagnostics
+in Foundation form. The CLI remains usable independently and this package has
+no dependency on project, run, or workspace storage.
 
 ## Types
 
@@ -110,7 +109,7 @@ toolqualification evaluate \
 
 All input files are this package's own Codable models serialized as JSON
 (`ToolDescriptor`, `ToolTrustRequirement`, `ToolHealthCheckResult`). stdout is
-a single JSON envelope:
+a single command-specific JSON result:
 
 ```json
 {
@@ -176,7 +175,7 @@ toolqualification validate-process-evidence \
   --pretty
 ```
 
-The JSON envelope includes the exact qualification scope and ISO-8601 timestamps.
+The JSON result includes the exact qualification scope and ISO-8601 timestamps.
 `ToolProcessQualificationEvidence` writes ISO-8601 dates and continues to read
 legacy Swift reference-date numeric timestamps for artifact compatibility.
 
@@ -200,7 +199,7 @@ validity. It exits 2 without writing an output record when any promotion
 condition is missing. This command creates a reproducible local record from
 already-produced evidence; it does not claim foundry qualification by itself.
 
-### Exit codes and failure envelope
+### Exit codes and diagnostics
 
 | Exit | Meaning |
 |---|---|
@@ -209,7 +208,7 @@ already-produced evidence; it does not claim foundry qualification by itself.
 | 1 | Invalid arguments, unreadable file, or invalid JSON |
 
 Failures never print bare prose: stderr carries a single JSON diagnostic
-envelope with a stable code —
+record with a stable code —
 
 ```json
 {"code": "toolqualification.cli.unreadable-file", "message": "Cannot read file at …"}

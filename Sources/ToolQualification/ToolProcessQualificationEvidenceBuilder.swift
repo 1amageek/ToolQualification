@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationEvidenceBuilding {
     public init() {}
@@ -105,7 +105,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         _ evidence: [ToolEvidence],
         expectedKind: ToolEvidenceKind,
         scope: ToolQualificationScope,
-        evidenceArtifactsByKey: [String: XcircuiteFileReference],
+        evidenceArtifactsByKey: [String: ArtifactReference],
         evidenceIDs: inout Set<String>,
         referencedArtifactKeys: inout Set<String>
     ) throws -> [String] {
@@ -152,14 +152,14 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
     }
 
     private func validateArtifacts(
-        _ artifacts: [XcircuiteFileReference]
-    ) throws -> [String: XcircuiteFileReference] {
+        _ artifacts: [ArtifactReference]
+    ) throws -> [String: ArtifactReference] {
         guard !artifacts.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "evidenceArtifacts must not be empty"
             )
         }
-        var artifactsByKey: [String: XcircuiteFileReference] = [:]
+        var artifactsByKey: [String: ArtifactReference] = [:]
         for artifact in artifacts {
             let key = artifactKey(artifact)
             guard artifactsByKey[key] == nil else {
@@ -167,14 +167,8 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                     artifactID(artifact)
                 )
             }
-            guard !artifact.path.isEmpty,
-                  !artifact.path.hasPrefix("/"),
-                  !artifact.path.split(separator: "/").contains(".."),
-                  let digest = artifact.sha256,
-                  digest.count == 64,
-                  digest.allSatisfy(\.isHexDigit),
-                  let byteCount = artifact.byteCount,
-                  byteCount >= 0 else {
+            guard artifact.locator.location.storage == .workspaceRelative,
+                  !artifact.locator.location.value.isEmpty else {
                 throw ToolProcessQualificationEvidenceBuildError.invalidArtifact(
                     artifactID(artifact)
                 )
@@ -184,11 +178,11 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         return artifactsByKey
     }
 
-    private func artifactKey(_ artifact: XcircuiteFileReference) -> String {
-        "\(artifact.artifactID ?? "")|\(artifact.path)"
+    private func artifactKey(_ artifact: ArtifactReference) -> String {
+        "\(artifact.id.rawValue)|\(artifact.locator.location.value)"
     }
 
-    private func artifactID(_ artifact: XcircuiteFileReference) -> String {
-        artifact.artifactID ?? artifact.path
+    private func artifactID(_ artifact: ArtifactReference) -> String {
+        artifact.id.rawValue
     }
 }

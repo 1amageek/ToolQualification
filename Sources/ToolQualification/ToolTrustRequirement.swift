@@ -1,12 +1,12 @@
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct ToolTrustRequirement: Sendable, Hashable, Codable {
     public var kind: ToolKind
     public var operationID: String
     public var minimumLevel: ToolQualificationLevel
-    public var requiredInputFormats: [XcircuiteFileFormat]
-    public var requiredOutputFormats: [XcircuiteFileFormat]
+    public var requiredInputFormats: [ArtifactFormat]
+    public var requiredOutputFormats: [ArtifactFormat]
     public var requiredEvidenceKinds: [ToolEvidenceKind]
     public var requiredQualifiedEvidenceKinds: [ToolEvidenceKind]
     public var maximumEvidenceAgeSeconds: TimeInterval?
@@ -18,8 +18,8 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         kind: ToolKind,
         operationID: String,
         minimumLevel: ToolQualificationLevel,
-        requiredInputFormats: [XcircuiteFileFormat] = [],
-        requiredOutputFormats: [XcircuiteFileFormat] = [],
+        requiredInputFormats: [ArtifactFormat] = [],
+        requiredOutputFormats: [ArtifactFormat] = [],
         requiredEvidenceKinds: [ToolEvidenceKind] = [],
         requiredQualifiedEvidenceKinds: [ToolEvidenceKind] = [],
         maximumEvidenceAgeSeconds: TimeInterval? = nil,
@@ -60,11 +60,11 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         self.operationID = try container.decode(String.self, forKey: .operationID)
         self.minimumLevel = try container.decode(ToolQualificationLevel.self, forKey: .minimumLevel)
         self.requiredInputFormats = try container.decode(
-            [XcircuiteFileFormat].self,
+            [ArtifactFormat].self,
             forKey: .requiredInputFormats
         )
         self.requiredOutputFormats = try container.decode(
-            [XcircuiteFileFormat].self,
+            [ArtifactFormat].self,
             forKey: .requiredOutputFormats
         )
         self.requiredEvidenceKinds = try container.decode(

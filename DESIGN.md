@@ -38,9 +38,9 @@ artifact, provenance, evidence, and diagnostic boundary:
   asynchronous flow integration while the existing `ToolTrustEvaluator`
   remains independently usable and synchronous.
 
-`XcircuitePackage` models remain compatibility input models for existing
-project/run JSON and file formats. They are not the new cross-package contract;
-new engine-facing evidence uses Foundation types.
+Project and run persistence is outside this package. Engine-facing evidence
+uses Foundation types directly; Xcircuite supplies concrete persistence when a
+flow needs `.xcircuite` storage.
 
 ## Trust boundary and ownership
 
@@ -59,17 +59,18 @@ new engine-facing evidence uses Foundation types.
 - No self-certification: a declared qualification level requires supporting
   evidence and freshness checks.
 - No conversion of a process exit code into a passing trust decision.
-- No removal of existing Xcircuite compatibility models without a migration
-  decision record.
+- No project/run migration, filesystem persistence, or flow lifecycle.
 
 ## Concrete engine boundary
 
-`ToolQualificationEngineAdapter` is the concrete Foundation-facing engine. It
+`DefaultToolQualificationEngine` is the concrete Foundation-facing engine. It
 invokes the existing synchronous `ToolTrustEvaluator`, maps both evaluator and
 health diagnostics to Foundation diagnostics without losing their original
 codes, records request inputs and evaluation timestamps in
 `ExecutionProvenance`, and returns a Foundation-backed result.
 
-It preserves deterministic registry ordering, health and freshness gates,
-independence requirements, and the existing CLI envelopes. It does not launch
-tools or create qualification evidence that was not supplied by the caller.
+It preserves deterministic registry ordering, health and freshness gates, and
+independence requirements. It does not launch tools or create qualification
+evidence that was not supplied by the caller. CLI commands expose
+domain-specific, typed records and diagnostics; they are not a persistence
+contract for another package.

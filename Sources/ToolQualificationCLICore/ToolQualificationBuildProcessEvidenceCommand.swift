@@ -109,7 +109,7 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                 qualified: false,
                 scope: request.scope,
                 evidenceArtifactIDs: request.evidenceArtifacts.map {
-                    $0.artifactID ?? $0.path
+                    $0.id.rawValue
                 }.sorted(),
                 diagnostics: [error.localizedDescription]
             )

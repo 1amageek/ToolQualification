@@ -1,8 +1,8 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import ToolQualification
 import ToolQualificationCLICore
-import XcircuitePackage
 
 @Suite("ToolQualification process evidence build CLI")
 struct ToolQualificationBuildProcessEvidenceCLITests {
@@ -10,7 +10,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
     func writesQualifiedRecord() throws {
         let directory = try makeTemporaryDirectory()
         let now = Date(timeIntervalSince1970: 1_000)
-        let request = makeRequest(now: now, independenceVerified: true)
+        let request = try makeRequest(now: now, independenceVerified: true)
         let inputURL = directory.appending(path: "build-request.json")
         let outputURL = directory.appending(path: "process-evidence.json")
         let encoder = JSONEncoder()
@@ -45,7 +45,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
     func blocksWithoutIndependence() throws {
         let directory = try makeTemporaryDirectory()
         let now = Date(timeIntervalSince1970: 1_000)
-        let request = makeRequest(now: now, independenceVerified: false)
+        let request = try makeRequest(now: now, independenceVerified: false)
         let inputURL = directory.appending(path: "build-request.json")
         let outputURL = directory.appending(path: "process-evidence.json")
         try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
@@ -91,7 +91,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
     private func makeRequest(
         now: Date,
         independenceVerified: Bool
-    ) -> ToolProcessQualificationEvidenceBuildRequest {
+    ) throws -> ToolProcessQualificationEvidenceBuildRequest {
         let scope = ToolQualificationScope(
             implementationID: "qualified-scan",
             binaryDigest: String(repeating: "a", count: 64),
@@ -102,13 +102,21 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             pdkDigest: String(repeating: "c", count: 64)
         )
         let kinds: [ToolEvidenceKind] = [.corpus, .oracle, .healthCheck, .productionApproval]
-        let artifacts = kinds.map { kind in
-            XcircuiteFileReference(
-                artifactID: "\(kind.rawValue)-artifact",
-                path: "qualification/\(kind.rawValue).json",
-                kind: .report,
-                format: .json,
-                sha256: String(repeating: "d", count: 64),
+        let artifacts = try kinds.map { kind in
+            ArtifactReference(
+                id: try ArtifactID(rawValue: "\(kind.rawValue)-artifact"),
+                locator: ArtifactLocator(
+                    location: try ArtifactLocation(
+                        workspaceRelativePath: "qualification/\(kind.rawValue).json"
+                    ),
+                    role: .output,
+                    kind: .report,
+                    format: .json
+                ),
+                digest: try ContentDigest(
+                    algorithm: .sha256,
+                    hexadecimalValue: String(repeating: "d", count: 64)
+                ),
                 byteCount: 1
             )
         }

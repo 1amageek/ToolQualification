@@ -3,9 +3,9 @@ import Testing
 import ToolQualification
 
 @Suite
-struct ToolQualificationEngineAdapterTests {
+struct DefaultToolQualificationEngineTests {
     @Test
-    func adapterReturnsEligibleDecisionAndFoundationProvenance() async throws {
+    func returnsEligibleDecisionAndFoundationProvenance() async throws {
         let evaluatedAt = Date(timeIntervalSince1970: 100)
         let descriptor = ToolDescriptor(
             toolID: "simulator",
@@ -31,7 +31,7 @@ struct ToolQualificationEngineAdapterTests {
             identifier: "ToolQualification",
             version: "1.0.0"
         )
-        let engine = ToolQualificationEngineAdapter(
+        let engine = DefaultToolQualificationEngine(
             producer: producer,
             completionDate: { Date(timeIntervalSince1970: 101) }
         )
@@ -47,7 +47,7 @@ struct ToolQualificationEngineAdapterTests {
     }
 
     @Test
-    func adapterPreservesHealthDiagnosticsAsFoundationDiagnostics() async throws {
+    func preservesHealthDiagnosticsAsFoundationDiagnostics() async throws {
         let descriptor = ToolDescriptor(
             toolID: "simulator",
             displayName: "Simulator",
@@ -78,7 +78,7 @@ struct ToolQualificationEngineAdapterTests {
             health: health,
             evaluatedAt: Date(timeIntervalSince1970: 100)
         )
-        let engine = ToolQualificationEngineAdapter(
+        let engine = DefaultToolQualificationEngine(
             producer: try ProducerIdentity(
                 kind: .library,
                 identifier: "ToolQualification",
@@ -103,7 +103,7 @@ struct ToolQualificationEngineAdapterTests {
     }
 
     @Test
-    func adapterRejectsAnUnrepresentableDiagnosticCode() async throws {
+    func rejectsAnUnrepresentableDiagnosticCode() async throws {
         let descriptor = ToolDescriptor(
             toolID: "simulator",
             displayName: "Simulator",
@@ -127,7 +127,7 @@ struct ToolQualificationEngineAdapterTests {
             ),
             evaluatedAt: Date(timeIntervalSince1970: 100)
         )
-        let engine = ToolQualificationEngineAdapter(
+        let engine = DefaultToolQualificationEngine(
             producer: try ProducerIdentity(
                 kind: .library,
                 identifier: "ToolQualification",

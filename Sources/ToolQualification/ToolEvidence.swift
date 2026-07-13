@@ -1,17 +1,17 @@
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct ToolEvidence: Sendable, Hashable, Codable {
     public var evidenceID: String
     public var kind: ToolEvidenceKind
-    public var artifact: XcircuiteFileReference?
+    public var artifact: ArtifactReference?
     public var qualification: ToolEvidenceQualificationSummary?
     public var checkedAt: Date?
 
     public init(
         evidenceID: String,
         kind: ToolEvidenceKind,
-        artifact: XcircuiteFileReference? = nil,
+        artifact: ArtifactReference? = nil,
         qualification: ToolEvidenceQualificationSummary? = nil,
         checkedAt: Date? = nil
     ) {
@@ -35,7 +35,7 @@ public struct ToolEvidence: Sendable, Hashable, Codable {
         self.evidenceID = try container.decode(String.self, forKey: .evidenceID)
         self.kind = try container.decode(ToolEvidenceKind.self, forKey: .kind)
         self.artifact = try container.decodeIfPresent(
-            XcircuiteFileReference.self,
+            ArtifactReference.self,
             forKey: .artifact
         )
         self.qualification = try container.decodeIfPresent(
@@ -125,7 +125,7 @@ public extension ToolEvidence {
         }
 
         if let artifact,
-           !artifact.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           !artifact.locator.location.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
         if let policyID = qualification.policyID,

@@ -11,13 +11,13 @@ Updated: 2026-07-13
 | Foundation engine protocol | Complete | `ToolQualificationEngine`. |
 | Fail-closed trust evaluator | Complete | Existing kind, capability, health, evidence, freshness, scope, and independence checks retained. |
 | Artifact-backed process evidence builder | Complete | Existing builder and CLI contracts retained. |
-| Xcircuite compatibility | Deliberately retained | Existing file-reference/project/run models remain compatibility inputs. |
+| Xcircuite integration | Externalized | Xcircuite and DesignFlowKernel own project/run persistence; this package exposes Foundation-native qualification records. |
 | Build after Foundation integration | Verified | `swift build` passed. |
-| Regression tests after Foundation integration | Verified | 55 tests passed with `swift test --parallel`. |
-| Concrete asynchronous qualification engine | Complete | `ToolQualificationEngineAdapter` evaluates through `ToolTrustEvaluator`, preserves evaluator and health diagnostics, and emits Foundation provenance. |
+| Regression tests after Foundation integration | Verified | 58 tests passed with a bounded `swift test` run. |
+| Concrete asynchronous qualification engine | Complete | `DefaultToolQualificationEngine` evaluates through `ToolTrustEvaluator`, preserves evaluator and health diagnostics, and emits Foundation provenance. |
 
-## Adapter scope
+## Engine scope
 
-The concrete adapter composes the synchronous trust evaluator behind
+The engine composes the synchronous trust evaluator behind
 `ToolQualificationEngine` and persists no fabricated evidence. Process
 execution and domain qualification remain outside this package.

@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, Codable {
     public static let currentSchemaVersion = 1
@@ -12,7 +12,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
     public var oracleEvidence: [ToolEvidence]
     public var healthEvidence: [ToolEvidence]
     public var approvalEvidence: [ToolEvidence]
-    public var evidenceArtifacts: [XcircuiteFileReference]
+    public var evidenceArtifacts: [ArtifactReference]
     public var qualifiedModelIDs: [String]
     public var independenceVerified: Bool
     public var requirePDKScope: Bool
@@ -27,7 +27,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         oracleEvidence: [ToolEvidence],
         healthEvidence: [ToolEvidence],
         approvalEvidence: [ToolEvidence],
-        evidenceArtifacts: [XcircuiteFileReference],
+        evidenceArtifacts: [ArtifactReference],
         qualifiedModelIDs: [String] = [],
         independenceVerified: Bool,
         requirePDKScope: Bool = true,
@@ -78,7 +78,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         oracleEvidence = try container.decode([ToolEvidence].self, forKey: .oracleEvidence)
         healthEvidence = try container.decode([ToolEvidence].self, forKey: .healthEvidence)
         approvalEvidence = try container.decode([ToolEvidence].self, forKey: .approvalEvidence)
-        evidenceArtifacts = try container.decode([XcircuiteFileReference].self, forKey: .evidenceArtifacts)
+        evidenceArtifacts = try container.decode([ArtifactReference].self, forKey: .evidenceArtifacts)
         qualifiedModelIDs = Self.sortedUnique(
             try container.decodeIfPresent([String].self, forKey: .qualifiedModelIDs) ?? []
         )

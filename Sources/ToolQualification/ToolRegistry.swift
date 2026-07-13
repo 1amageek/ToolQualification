@@ -1,5 +1,4 @@
 import Foundation
-import XcircuitePackage
 
 public struct ToolRegistry: Sendable, Hashable, Codable {
     public private(set) var descriptors: [String: ToolDescriptor]
@@ -14,9 +13,8 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
 
     public init(validating descriptors: [ToolDescriptor]) throws {
         var descriptorsByID: [String: ToolDescriptor] = [:]
-        let validator = XcircuiteIdentifierValidator()
         for descriptor in descriptors {
-            try validator.validate(descriptor.toolID, kind: .toolID)
+            try Self.validateToolID(descriptor.toolID)
             guard descriptorsByID[descriptor.toolID] == nil else {
                 throw ToolQualificationError.duplicateToolID(descriptor.toolID)
             }
@@ -30,7 +28,7 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
     }
 
     public mutating func upsert(_ descriptor: ToolDescriptor) throws {
-        try XcircuiteIdentifierValidator().validate(descriptor.toolID, kind: .toolID)
+        try Self.validateToolID(descriptor.toolID)
         descriptors[descriptor.toolID] = descriptor
     }
 
@@ -73,5 +71,18 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
             healthResults: healthResults,
             evaluator: evaluator
         ).first?.descriptor
+    }
+
+    private static func validateToolID(_ toolID: String) throws {
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+        )
+        guard !toolID.isEmpty,
+              toolID.count <= 128,
+              toolID != ".",
+              toolID != "..",
+              toolID.unicodeScalars.allSatisfy(allowed.contains) else {
+            throw ToolQualificationError.invalidToolID(toolID)
+        }
     }
 }

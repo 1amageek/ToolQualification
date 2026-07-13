@@ -1,6 +1,5 @@
 import Testing
 import ToolQualification
-import XcircuitePackage
 
 @Suite("Tool registry")
 struct ToolRegistryTests {
@@ -17,7 +16,7 @@ struct ToolRegistryTests {
     @Test func upsertRejectsInvalidToolID() {
         var registry = ToolRegistry()
 
-        #expect(throws: XcircuitePackageError.self) {
+        #expect(throws: ToolQualificationError.invalidToolID("../drc")) {
             try registry.upsert(makeDescriptor(toolID: "../drc", level: .smokeChecked))
         }
     }
