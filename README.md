@@ -6,6 +6,30 @@ versions, verified scope, and failure conditions are captured and gated before a
 flow may use them. This package holds the contract only; it never launches a tool
 (execution, parsers, and domain validation stay in the engine packages).
 
+## CircuiteFoundation boundary
+
+Trust evaluation remains the responsibility of this package, while
+`CircuiteFoundation` supplies the shared artifact, provenance, and diagnostic
+boundary used by flow engines. `ToolQualificationRequest` captures the exact
+inputs to an evaluation; `ToolQualificationResult` carries the decision and the
+evidence manifest that can be persisted or reviewed by an Agent or a human.
+
+```mermaid
+flowchart LR
+  Request["ToolQualificationRequest\ndescriptor + requirement + health"] --> Evaluator["ToolTrustEvaluator"]
+  Evaluator --> Decision["ToolTrustDecision"]
+  Decision --> Result["ToolQualificationResult"]
+  Result --> Evidence["EvidenceManifest\nArtifactReference[]"]
+  Result --> Diagnostics["DesignDiagnostic[]"]
+```
+
+`ToolQualificationEngineAdapter` is the concrete asynchronous seam for flow
+integration. It delegates to the existing synchronous evaluator and preserves
+both evaluator and health diagnostics in Foundation form. The CLI remains
+usable independently, and `XcircuitePackage` models stay as compatibility input
+models until their project/run lifecycle responsibilities are migrated out of
+this package.
+
 ## Types
 
 | Type | Responsibility |
@@ -20,7 +44,8 @@ flow may use them. This package holds the contract only; it never launches a too
 | `ToolTrustEvaluator` / `ToolTrustDecision` | Eligible/rejected verdict from descriptor + requirement + health |
 | `ToolRegistry` | Registers descriptors, selects eligible candidates deterministically |
 | `ToolEnvironment` / `ToolAsset` | Executable paths, platform, required assets (PDK, rule decks) |
-| `ToolQualificationScope` / `ToolProcessQualificationEvidence` | Exact implementation, binary, algorithm, process, deck and optional PDK scope with freshness, independence and approval references |
+| `ToolQualificationScope` / `ToolProcessQualificationEvidence` | Exact implementation, binary, algorithm, process, deck and optional PDK scope with freshness, independence, approval and qualified-model references |
+| `ToolProcessQualificationEvidenceBuilder` | Promotes artifact-backed independent corpus, oracle, health and production-approval evidence into a qualified process record |
 | `ToolQualificationCLICore` / `toolqualification` | Testable CLI core + headless executable |
 
 ## Rules
@@ -155,6 +180,26 @@ The JSON envelope includes the exact qualification scope and ISO-8601 timestamps
 `ToolProcessQualificationEvidence` writes ISO-8601 dates and continues to read
 legacy Swift reference-date numeric timestamps for artifact compatibility.
 
+### build-process-evidence
+
+Build a process qualification record only from a JSON
+`ToolProcessQualificationEvidenceBuildRequest` containing complete PDK scope,
+artifact-backed independent corpus/oracle/health/production-approval evidence,
+and a valid qualification window:
+
+```bash
+toolqualification build-process-evidence \
+  --input process-qualification-build-request.json \
+  --output process-qualification-evidence.json \
+  --pretty
+```
+
+The builder verifies evidence kinds, independent passing qualification summaries,
+artifact IDs, project-relative paths, SHA-256 digests, byte counts, scope and
+validity. It exits 2 without writing an output record when any promotion
+condition is missing. This command creates a reproducible local record from
+already-produced evidence; it does not claim foundry qualification by itself.
+
 ### Exit codes and failure envelope
 
 | Exit | Meaning |
@@ -174,7 +219,8 @@ Codes: `toolqualification.cli.invalid-arguments`,
 `toolqualification.cli.unreadable-file`, `toolqualification.cli.invalid-json`,
 `toolqualification.cli.internal-error`. `toolqualification --help`,
 `evaluate --help`, `evaluate-registry --help`, and
-`validate-process-evidence --help` document the full surface.
+`validate-process-evidence --help` and `build-process-evidence --help` document
+the full surface.
 
 ## Build & test
 

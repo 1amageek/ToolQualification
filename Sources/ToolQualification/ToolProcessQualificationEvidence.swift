@@ -13,6 +13,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     public var healthEvidenceIDs: [String]
     public var approvalEvidenceIDs: [String]
     public var evidenceArtifactIDs: [String]
+    public var qualifiedModelIDs: [String]
     public var independenceVerified: Bool
     public var blockers: [String]
     public var qualifiedAt: Date?
@@ -28,6 +29,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         healthEvidenceIDs: [String] = [],
         approvalEvidenceIDs: [String] = [],
         evidenceArtifactIDs: [String] = [],
+        qualifiedModelIDs: [String] = [],
         independenceVerified: Bool = false,
         blockers: [String] = [],
         qualifiedAt: Date? = nil,
@@ -44,6 +46,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         self.healthEvidenceIDs = Self.sortedUnique(healthEvidenceIDs)
         self.approvalEvidenceIDs = Self.sortedUnique(approvalEvidenceIDs)
         self.evidenceArtifactIDs = Self.sortedUnique(evidenceArtifactIDs)
+        self.qualifiedModelIDs = Self.sortedUnique(qualifiedModelIDs)
         self.independenceVerified = independenceVerified
         self.blockers = Self.sortedUnique(blockers)
         self.qualifiedAt = qualifiedAt
@@ -110,6 +113,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         case healthEvidenceIDs
         case approvalEvidenceIDs
         case evidenceArtifactIDs
+        case qualifiedModelIDs
         case independenceVerified
         case blockers
         case qualifiedAt
@@ -128,6 +132,9 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         healthEvidenceIDs = try container.decode([String].self, forKey: .healthEvidenceIDs)
         approvalEvidenceIDs = try container.decode([String].self, forKey: .approvalEvidenceIDs)
         evidenceArtifactIDs = try container.decode([String].self, forKey: .evidenceArtifactIDs)
+        qualifiedModelIDs = Self.sortedUnique(
+            try container.decodeIfPresent([String].self, forKey: .qualifiedModelIDs) ?? []
+        )
         independenceVerified = try container.decode(Bool.self, forKey: .independenceVerified)
         blockers = try container.decode([String].self, forKey: .blockers)
         qualifiedAt = try Self.decodeDate(from: container, forKey: .qualifiedAt)
@@ -146,6 +153,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         try container.encode(healthEvidenceIDs, forKey: .healthEvidenceIDs)
         try container.encode(approvalEvidenceIDs, forKey: .approvalEvidenceIDs)
         try container.encode(evidenceArtifactIDs, forKey: .evidenceArtifactIDs)
+        try container.encode(qualifiedModelIDs, forKey: .qualifiedModelIDs)
         try container.encode(independenceVerified, forKey: .independenceVerified)
         try container.encode(blockers, forKey: .blockers)
         try Self.encodeDate(qualifiedAt, into: &container, forKey: .qualifiedAt)

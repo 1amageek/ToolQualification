@@ -7,6 +7,7 @@ import Foundation
 public enum ToolQualificationCLIError: Error, Sendable, Equatable {
     case invalidArguments(String)
     case unreadableFile(path: String, reason: String)
+    case unwritableFile(path: String, reason: String)
     case invalidJSON(path: String, reason: String)
     case internalError(String)
 
@@ -17,6 +18,8 @@ public enum ToolQualificationCLIError: Error, Sendable, Equatable {
             "toolqualification.cli.invalid-arguments"
         case .unreadableFile:
             "toolqualification.cli.unreadable-file"
+        case .unwritableFile:
+            "toolqualification.cli.unwritable-file"
         case .invalidJSON:
             "toolqualification.cli.invalid-json"
         case .internalError:
@@ -31,6 +34,8 @@ public enum ToolQualificationCLIError: Error, Sendable, Equatable {
             details
         case .unreadableFile(let path, let reason):
             "Cannot read file at \(path): \(reason)"
+        case .unwritableFile(let path, let reason):
+            "Cannot write file at \(path): \(reason)"
         case .invalidJSON(let path, let reason):
             "File at \(path) does not decode as the expected JSON model: \(reason)"
         case .internalError(let details):

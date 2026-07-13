@@ -66,6 +66,14 @@ public enum ToolQualificationCLI {
                 arguments: commandArguments
             )
             return try ToolQualificationValidateProcessEvidenceCommand().execute(options: options)
+        case "build-process-evidence":
+            if commandArguments.contains("--help") {
+                return helpResult(buildProcessEvidenceHelp)
+            }
+            let options = try ToolQualificationBuildProcessEvidenceCommand.Options(
+                arguments: commandArguments
+            )
+            return try ToolQualificationBuildProcessEvidenceCommand().execute(options: options)
         default:
             throw ToolQualificationCLIError.invalidArguments(
                 "Unknown command: \(command). Run 'toolqualification --help' for usage."
@@ -105,6 +113,7 @@ public enum ToolQualificationCLI {
       toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--pretty]
       toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--pretty]
       toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
+      toolqualification build-process-evidence --input <path.json> --output <path.json> [--at <unix-seconds>] [--pretty]
       toolqualification <command> --help
 
     COMMANDS:
@@ -114,6 +123,8 @@ public enum ToolQualificationCLI {
                          ascending) and report the selected first-eligible tool.
       validate-process-evidence  Validate a persisted process qualification record
                          at a specific evaluation time and optional PDK scope.
+      build-process-evidence  Build a qualified process record only when all
+                         independent corpus, oracle, health and approval evidence is present.
 
     EXIT CODES:
       0  eligible (evaluate) / at least one eligible tool (evaluate-registry)
@@ -185,5 +196,25 @@ public enum ToolQualificationCLI {
       0  evidence is qualified and fresh for the requested scope
       2  evidence is readable but not qualified
       1  invalid arguments, unreadable file, or invalid JSON
+    """
+
+    static let buildProcessEvidenceHelp = """
+    OVERVIEW: Build a ToolProcessQualificationEvidence record from independent,
+    artifact-backed qualification evidence.
+
+    USAGE:
+      toolqualification build-process-evidence --input <build-request.json> --output <evidence.json> [--at <unix-seconds>] [--pretty]
+
+    OPTIONS:
+      --input <build-request.json>  Build request containing scoped corpus,
+                                    oracle, health and production-approval evidence (required)
+      --output <evidence.json>      Qualified process record output path (required)
+      --at <unix-seconds>           Require the validity window to contain this time; defaults to now
+      --pretty                      Pretty-print the stdout JSON envelope and output record
+
+    EXIT CODES:
+      0  qualified process record was written
+      2  input was readable but could not be promoted
+      1  invalid arguments, unreadable input, invalid JSON or unwritable output
     """
 }

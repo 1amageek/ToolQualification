@@ -10,12 +10,14 @@ let package = Package(
         .executable(name: "toolqualification", targets: ["ToolQualificationCLI"]),
     ],
     dependencies: [
+        .package(path: "../CircuiteFoundation"),
         .package(path: "../XcircuitePackage"),
     ],
     targets: [
         .target(
             name: "ToolQualification",
             dependencies: [
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
@@ -27,10 +29,20 @@ let package = Package(
             name: "ToolQualificationCLI",
             dependencies: ["ToolQualificationCLICore"]
         ),
-        .testTarget(name: "ToolQualificationTests", dependencies: ["ToolQualification"]),
+        .testTarget(
+            name: "ToolQualificationTests",
+            dependencies: [
+                "ToolQualification",
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+            ]
+        ),
         .testTarget(
             name: "ToolQualificationCLICoreTests",
-            dependencies: ["ToolQualificationCLICore", "ToolQualification"]
+            dependencies: [
+                "ToolQualificationCLICore",
+                "ToolQualification",
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+            ]
         ),
     ]
 )
