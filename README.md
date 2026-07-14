@@ -6,6 +6,14 @@ versions, verified scope, and failure conditions are captured and gated before a
 flow may use them. This package holds the contract only; it never launches a tool
 (execution, parsers, and domain validation stay in the engine packages).
 
+## Xcircuite integration
+
+[`Xcircuite`](https://github.com/1amageek/Xcircuite) is the umbrella runtime
+that consumes tool descriptors, health results, qualification evidence, and
+trust decisions when constructing flow stages. `ToolQualification` remains an
+independent trust contract and does not own project orchestration or engine
+execution.
+
 ## CircuiteFoundation boundary
 
 Trust evaluation remains the responsibility of this package, while
