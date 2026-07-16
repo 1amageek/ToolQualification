@@ -47,6 +47,7 @@ public struct ToolQualificationRegistryEnvelope: Sendable, Equatable, Codable {
     public var descriptorsPath: String
     public var requirementPath: String
     public var healthResultsPath: String?
+    public var workspaceRootPath: String?
     public var requirement: RequirementIdentity
     public var evaluatedCount: Int
     public var eligibleCount: Int
@@ -58,6 +59,7 @@ public struct ToolQualificationRegistryEnvelope: Sendable, Equatable, Codable {
         descriptorsPath: String,
         requirementPath: String,
         healthResultsPath: String?,
+        workspaceRootPath: String?,
         requirement: RequirementIdentity,
         evaluatedCount: Int,
         eligibleCount: Int,
@@ -68,6 +70,7 @@ public struct ToolQualificationRegistryEnvelope: Sendable, Equatable, Codable {
         self.descriptorsPath = descriptorsPath
         self.requirementPath = requirementPath
         self.healthResultsPath = healthResultsPath
+        self.workspaceRootPath = workspaceRootPath
         self.requirement = requirement
         self.evaluatedCount = evaluatedCount
         self.eligibleCount = eligibleCount

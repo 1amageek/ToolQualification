@@ -82,6 +82,91 @@ struct ToolQualificationCLITests {
         """
     }
 
+    private func smokeQualifiedDescriptorJSON(
+        toolID: String,
+        in workspaceRoot: URL
+    ) throws -> String {
+        let issuer = try ProducerIdentity(
+            kind: .engine,
+            identifier: "toolqualification-test-runner",
+            version: "1"
+        )
+        let qualificationDirectory = workspaceRoot
+            .appendingPathComponent("qualification", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: qualificationDirectory,
+            withIntermediateDirectories: true
+        )
+        let input = try writeQualificationArtifact(
+            Data("input".utf8), named: "\(toolID)-input.json", role: .input,
+            producer: issuer, workspaceRoot: workspaceRoot
+        )
+        let output = try writeQualificationArtifact(
+            Data("output".utf8), named: "\(toolID)-output.json", role: .output,
+            producer: issuer, workspaceRoot: workspaceRoot
+        )
+        let checkedAt = Date(timeIntervalSince1970: 1_000)
+        let result = ToolSmokeQualificationResult(
+            resultID: "\(toolID)-smoke",
+            qualificationID: "\(toolID)-qualification",
+            toolID: toolID,
+            issuer: issuer,
+            inputArtifacts: [input],
+            outputArtifacts: [output],
+            checkedAt: checkedAt
+        )
+        let resultReference = try writeQualificationArtifact(
+            result.canonicalData(), named: "\(toolID)-smoke.json", role: .output,
+            producer: issuer, workspaceRoot: workspaceRoot
+        )
+        let descriptor = ToolDescriptor(
+            toolID: toolID,
+            displayName: "\(toolID) display name",
+            kind: .simulation,
+            version: "1.0.0",
+            capabilities: [ToolCapability(
+                operationID: "simulate.transient",
+                inputFormats: [.spice],
+                outputFormats: [.raw]
+            )],
+            trustProfile: ToolTrustProfile(
+                level: .smokeChecked,
+                evidence: [ToolEvidence(
+                    evidenceID: result.resultID,
+                    kind: .smoke,
+                    artifact: resultReference,
+                    checkedAt: checkedAt
+                )]
+            ),
+            environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
+        )
+        return String(decoding: try JSONEncoder().encode(descriptor), as: UTF8.self)
+    }
+
+    private func writeQualificationArtifact(
+        _ data: Data,
+        named name: String,
+        role: ArtifactRole,
+        producer: ProducerIdentity,
+        workspaceRoot: URL
+    ) throws -> ArtifactReference {
+        let relativePath = "qualification/\(name)"
+        try data.write(
+            to: workspaceRoot.appendingPathComponent(relativePath),
+            options: .atomic
+        )
+        return try LocalArtifactReferencer().reference(
+            ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: relativePath),
+                role: role,
+                kind: .report,
+                format: .json
+            ),
+            relativeTo: workspaceRoot,
+            producer: producer
+        )
+    }
+
     private func requirementJSON(
         kind: String = "simulation",
         operationID: String = "simulate.transient",
@@ -135,7 +220,7 @@ struct ToolQualificationCLITests {
     @Test func evaluateEligibleToolExitsZero() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
-            descriptorJSON(toolID: "sim.corespice"),
+            smokeQualifiedDescriptorJSON(toolID: "sim.corespice", in: directory),
             named: "descriptor.json",
             in: directory
         )
@@ -149,6 +234,7 @@ struct ToolQualificationCLITests {
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
+            "--workspace-root", directory.path,
         ])
 
         #expect(result.exitCode == 0)
@@ -161,12 +247,13 @@ struct ToolQualificationCLITests {
         #expect(envelope.inputs.descriptorPath == descriptorPath)
         #expect(envelope.inputs.requirementPath == requirementPath)
         #expect(envelope.inputs.healthPath == nil)
+        #expect(envelope.inputs.workspaceRootPath == directory.path)
     }
 
     @Test func evaluateWithPassingHealthCheckExitsZero() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
-            descriptorJSON(toolID: "sim.corespice"),
+            smokeQualifiedDescriptorJSON(toolID: "sim.corespice", in: directory),
             named: "descriptor.json",
             in: directory
         )
@@ -186,6 +273,7 @@ struct ToolQualificationCLITests {
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
             "--health", healthPath,
+            "--workspace-root", directory.path,
         ])
 
         #expect(result.exitCode == 0)
@@ -228,10 +316,10 @@ struct ToolQualificationCLITests {
         let descriptorsPath = try write(
             """
             [
-              \(descriptorJSON(toolID: "b.tool")),
+              \(try smokeQualifiedDescriptorJSON(toolID: "b.tool", in: directory)),
               \(descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"])),
               \(descriptorJSON(toolID: "r.mismatch", kind: "layout", level: "unknown", evidenceKinds: [])),
-              \(descriptorJSON(toolID: "a.tool"))
+              \(try smokeQualifiedDescriptorJSON(toolID: "a.tool", in: directory))
             ]
             """,
             named: "descriptors.json",
@@ -247,6 +335,7 @@ struct ToolQualificationCLITests {
             "evaluate-registry",
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
+            "--workspace-root", directory.path,
         ])
 
         #expect(result.exitCode == 0)
@@ -257,6 +346,7 @@ struct ToolQualificationCLITests {
         #expect(envelope.selectedToolID == "a.tool")
         #expect(envelope.evaluatedCount == 4)
         #expect(envelope.eligibleCount == 2)
+        #expect(envelope.workspaceRootPath == directory.path)
         let mismatch = try #require(envelope.decisions.last)
         #expect(!mismatch.eligible)
         #expect(mismatch.decision.diagnostics.contains { $0.code == "TOOL_KIND_MISMATCH" })
@@ -267,7 +357,7 @@ struct ToolQualificationCLITests {
         let descriptorsPath = try write(
             """
             [
-              \(descriptorJSON(toolID: "a.tool")),
+              \(try smokeQualifiedDescriptorJSON(toolID: "a.tool", in: directory)),
               \(descriptorJSON(toolID: "b.tool")),
               \(descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"]))
             ]
@@ -295,6 +385,7 @@ struct ToolQualificationCLITests {
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
             "--health-results", healthResultsPath,
+            "--workspace-root", directory.path,
         ])
 
         #expect(result.exitCode == 0)
@@ -634,11 +725,13 @@ struct ToolQualificationCLITests {
         #expect(evaluate.standardOutput.contains("--descriptor"))
         #expect(evaluate.standardOutput.contains("--requirement"))
         #expect(evaluate.standardOutput.contains("--health"))
+        #expect(evaluate.standardOutput.contains("--workspace-root"))
 
         let registry = await ToolQualificationCLI.invoke(arguments: ["evaluate-registry", "--help"])
         #expect(registry.exitCode == 0)
         #expect(registry.standardOutput.contains("--descriptors"))
         #expect(registry.standardOutput.contains("--health-results"))
+        #expect(registry.standardOutput.contains("--workspace-root"))
         #expect(registry.standardOutput.contains("selectedToolID"))
 
         let process = await ToolQualificationCLI.invoke(arguments: ["validate-process-evidence", "--help"])

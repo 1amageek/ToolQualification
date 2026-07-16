@@ -110,8 +110,8 @@ public enum ToolQualificationCLI {
     ToolTrustEvaluator().evaluate(descriptor:requirement:health:).
 
     USAGE:
-      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--pretty]
-      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--pretty]
+      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path>] [--pretty]
+      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path>] [--pretty]
       toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
       toolqualification build-process-evidence --input <path.json> --output <path.json> [--at <unix-seconds>] [--pretty]
       toolqualification <command> --help
@@ -137,12 +137,13 @@ public enum ToolQualificationCLI {
     OVERVIEW: Evaluate one ToolDescriptor against a ToolTrustRequirement.
 
     USAGE:
-      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--pretty]
+      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path>] [--pretty]
 
     OPTIONS:
       --descriptor <path.json>   ToolDescriptor JSON file (required)
       --requirement <path.json>  ToolTrustRequirement JSON file (required)
       --health <path.json>       ToolHealthCheckResult JSON file (optional)
+      --workspace-root <path>    Resolve and verify retained qualification artifacts
       --pretty                   Pretty-print the stdout JSON envelope
 
     OUTPUT (stdout, JSON):
@@ -160,12 +161,13 @@ public enum ToolQualificationCLI {
     orders stage tools.
 
     USAGE:
-      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--pretty]
+      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path>] [--pretty]
 
     OPTIONS:
       --descriptors <path.json>     JSON array of ToolDescriptor (required)
       --requirement <path.json>     ToolTrustRequirement JSON file (required)
       --health-results <path.json>  JSON dictionary toolID -> ToolHealthCheckResult (optional)
+      --workspace-root <path>       Resolve and verify retained qualification artifacts
       --pretty                      Pretty-print the stdout JSON envelope
 
     OUTPUT (stdout, JSON):

@@ -122,8 +122,13 @@ toolqualification evaluate \
   --descriptor descriptor.json \
   --requirement requirement.json \
   --health health.json \
+  --workspace-root /path/to/workspace \
   --pretty
 ```
+
+`--workspace-root` enables integrity-checked loading of retained qualification
+artifacts. A descriptor at `smokeChecked` or above fails closed when its typed
+qualification result cannot be read and reproduced from that root.
 
 All input files are this package's own Codable models serialized as JSON
 (`ToolDescriptor`, `ToolTrustRequirement`, `ToolHealthCheckResult`). stdout is
@@ -158,7 +163,8 @@ optional `toolID -> ToolHealthCheckResult` dictionary:
 toolqualification evaluate-registry \
   --descriptors descriptors.json \
   --requirement requirement.json \
-  --health-results health-results.json
+  --health-results health-results.json \
+  --workspace-root /path/to/workspace
 ```
 
 Decisions are ranked exactly the way `DesignFlowKernel` orders stage tools:

@@ -21,6 +21,7 @@ public struct ToolQualificationEvaluateEnvelope: Sendable, Equatable, Codable {
         public var healthPath: String?
         public var healthToolID: String?
         public var healthStatus: ToolHealthStatus?
+        public var workspaceRootPath: String?
 
         public init(
             descriptorPath: String,
@@ -34,7 +35,8 @@ public struct ToolQualificationEvaluateEnvelope: Sendable, Equatable, Codable {
             requirementMinimumLevel: ToolQualificationLevel,
             healthPath: String? = nil,
             healthToolID: String? = nil,
-            healthStatus: ToolHealthStatus? = nil
+            healthStatus: ToolHealthStatus? = nil,
+            workspaceRootPath: String? = nil
         ) {
             self.descriptorPath = descriptorPath
             self.descriptorToolID = descriptorToolID
@@ -48,6 +50,7 @@ public struct ToolQualificationEvaluateEnvelope: Sendable, Equatable, Codable {
             self.healthPath = healthPath
             self.healthToolID = healthToolID
             self.healthStatus = healthStatus
+            self.workspaceRootPath = workspaceRootPath
         }
     }
 

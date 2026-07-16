@@ -1,3 +1,5 @@
+import CircuiteFoundation
+import Foundation
 import Testing
 import ToolQualification
 
@@ -21,10 +23,11 @@ struct ToolRegistryTests {
         }
     }
 
-    @Test func deterministicTieBreakUsesToolID() async {
+    @Test func deterministicTieBreakUsesToolID() async throws {
+        let qualification = try SmokeQualificationFixture()
         let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "z-tool", level: .smokeChecked),
-            makeDescriptor(toolID: "a-tool", level: .smokeChecked),
+            try await qualification.descriptor(toolID: "z-tool"),
+            try await qualification.descriptor(toolID: "a-tool"),
         ])
         let health = [
             "a-tool": ToolHealthCheckResult(toolID: "a-tool", status: .passed),
@@ -33,16 +36,18 @@ struct ToolRegistryTests {
 
         let selected = await registry.select(
             requirement: makeRequirement(),
-            healthResults: health
+            healthResults: health,
+            artifactReader: qualification.reader
         )
 
         #expect(selected?.toolID == "a-tool")
     }
 
-    @Test func selectPrefersTheMostQualifiedEligibleCandidate() async {
+    @Test func selectPrefersTheMostQualifiedEligibleCandidate() async throws {
+        let qualification = try SmokeQualificationFixture()
         let registry = ToolRegistry(descriptors: [
             makeDescriptor(toolID: "unknown-tool", level: .unknown),
-            makeDescriptor(toolID: "smoke-tool", level: .smokeChecked),
+            try await qualification.descriptor(toolID: "smoke-tool"),
         ])
         let health = [
             "unknown-tool": ToolHealthCheckResult(toolID: "unknown-tool", status: .passed),
@@ -56,15 +61,20 @@ struct ToolRegistryTests {
             requiredOutputFormats: [.json]
         )
 
-        let selected = await registry.select(requirement: requirement, healthResults: health)
+        let selected = await registry.select(
+            requirement: requirement,
+            healthResults: health,
+            artifactReader: qualification.reader
+        )
 
         #expect(selected?.toolID == "smoke-tool")
     }
 
-    @Test func selectSkipsFailedHealthCandidates() async {
+    @Test func selectSkipsFailedHealthCandidates() async throws {
+        let qualification = try SmokeQualificationFixture()
         let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "failed", level: .smokeChecked),
-            makeDescriptor(toolID: "healthy", level: .smokeChecked),
+            try await qualification.descriptor(toolID: "failed"),
+            try await qualification.descriptor(toolID: "healthy"),
         ])
         let health = [
             "failed": ToolHealthCheckResult(toolID: "failed", status: .failed),
@@ -73,7 +83,8 @@ struct ToolRegistryTests {
 
         let selected = await registry.select(
             requirement: makeRequirement(),
-            healthResults: health
+            healthResults: health,
+            artifactReader: qualification.reader
         )
 
         #expect(selected?.toolID == "healthy")
@@ -143,5 +154,91 @@ struct ToolRegistryTests {
             trustProfile: ToolTrustProfile(level: level, evidence: evidence),
             environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
         )
+    }
+}
+
+private struct SmokeQualificationFixture {
+    let issuer: ProducerIdentity
+    let checkedAt = Date(timeIntervalSince1970: 1_000)
+    let reader = RegistryQualificationArtifactReader()
+
+    init() throws {
+        issuer = try ProducerIdentity(
+            kind: .engine,
+            identifier: "registry-qualification-runner",
+            version: "1"
+        )
+    }
+
+    func descriptor(toolID: String) async throws -> ToolDescriptor {
+        let input = try artifact(id: "\(toolID)-input", data: Data("input".utf8))
+        let output = try artifact(id: "\(toolID)-output", data: Data("output".utf8))
+        let result = ToolSmokeQualificationResult(
+            resultID: "\(toolID)-smoke",
+            qualificationID: "\(toolID)-qualification",
+            toolID: toolID,
+            issuer: issuer,
+            inputArtifacts: [input],
+            outputArtifacts: [output],
+            checkedAt: checkedAt
+        )
+        let data = try result.canonicalData()
+        let reference = try artifact(id: "\(toolID)-smoke-result", data: data)
+        await reader.insert(data, for: reference)
+        return ToolDescriptor(
+            toolID: toolID,
+            displayName: toolID,
+            kind: .drc,
+            version: "1.0.0",
+            capabilities: [
+                ToolCapability(
+                    operationID: "run-drc",
+                    inputFormats: [.oasis],
+                    outputFormats: [.json]
+                ),
+            ],
+            trustProfile: ToolTrustProfile(
+                level: .smokeChecked,
+                evidence: [ToolEvidence(
+                    evidenceID: result.resultID,
+                    kind: .smoke,
+                    artifact: reference,
+                    checkedAt: checkedAt
+                )]
+            ),
+            environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
+        )
+    }
+
+    private func artifact(id: String, data: Data) throws -> ArtifactReference {
+        ArtifactReference(
+            id: try ArtifactID(rawValue: id),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: "qualification/\(id).json"),
+                role: .output,
+                kind: .report,
+                format: .json
+            ),
+            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count),
+            producer: issuer
+        )
+    }
+}
+
+private actor RegistryQualificationArtifactReader: ToolQualificationArtifactReading {
+    private var dataByReference: [ArtifactReference: Data] = [:]
+
+    func insert(_ data: Data, for reference: ArtifactReference) {
+        dataByReference[reference] = data
+    }
+
+    func verifiedData(for reference: ArtifactReference) async throws -> Data {
+        guard let data = dataByReference[reference] else {
+            throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+                reference.id.rawValue
+            )
+        }
+        return data
     }
 }

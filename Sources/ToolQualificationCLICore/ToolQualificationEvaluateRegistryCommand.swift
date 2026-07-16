@@ -3,7 +3,8 @@ import ToolQualification
 
 /// Implements `toolqualification evaluate-registry`: decode an array of
 /// `ToolDescriptor` values, one `ToolTrustRequirement`, and an optional
-/// `[toolID: ToolHealthCheckResult]` dictionary, evaluate every descriptor,
+/// `[toolID: ToolHealthCheckResult]` dictionary, optionally verify retained
+/// evidence relative to a workspace root, evaluate every descriptor,
 /// and emit all decisions ranked the way DesignFlowKernel orders stage tools
 /// (eligible first, trust level descending, toolID ascending) plus the
 /// selected first-eligible toolID.
@@ -15,12 +16,14 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
         public var descriptorsPath: String
         public var requirementPath: String
         public var healthResultsPath: String?
+        public var workspaceRootPath: String?
         public var pretty: Bool
 
         public init(arguments: [String]) throws {
             var descriptorsPath: String?
             var requirementPath: String?
             var healthResultsPath: String?
+            var workspaceRootPath: String?
             var pretty = false
             var cursor = ToolQualificationCLIArgumentCursor(arguments: arguments)
             while let argument = cursor.next() {
@@ -31,6 +34,8 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
                     requirementPath = try cursor.requireValue(for: argument)
                 case "--health-results":
                     healthResultsPath = try cursor.requireValue(for: argument)
+                case "--workspace-root":
+                    workspaceRootPath = try cursor.requireValue(for: argument)
                 case "--pretty":
                     pretty = true
                 default:
@@ -52,6 +57,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
             self.descriptorsPath = descriptorsPath
             self.requirementPath = requirementPath
             self.healthResultsPath = healthResultsPath
+            self.workspaceRootPath = workspaceRootPath
             self.pretty = pretty
         }
     }
@@ -78,6 +84,14 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
         }
 
         let evaluator = ToolTrustEvaluator()
+        let artifactReader: (any ToolQualificationArtifactReading)?
+        if let workspaceRootPath = options.workspaceRootPath {
+            artifactReader = LocalToolQualificationArtifactReader(
+                workspaceRoot: URL(filePath: workspaceRootPath)
+            )
+        } else {
+            artifactReader = nil
+        }
         var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
         for descriptor in descriptors {
             evaluated.append((
@@ -85,7 +99,8 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
                 decision: await evaluator.evaluate(
                     descriptor: descriptor,
                     requirement: requirement,
-                    health: healthResults[descriptor.toolID]
+                    health: healthResults[descriptor.toolID],
+                    artifactReader: artifactReader
                 )
             ))
         }
@@ -108,6 +123,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
             descriptorsPath: options.descriptorsPath,
             requirementPath: options.requirementPath,
             healthResultsPath: options.healthResultsPath,
+            workspaceRootPath: options.workspaceRootPath,
             requirement: ToolQualificationRegistryEnvelope.RequirementIdentity(
                 kind: requirement.kind,
                 operationID: requirement.operationID,
