@@ -48,6 +48,7 @@ let package = Package(
             name: "ToolQualificationTests",
             dependencies: [
                 "ToolQualification",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
             ]
         ),
         .testTarget(
