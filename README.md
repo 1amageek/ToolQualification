@@ -45,7 +45,7 @@ no dependency on project, run, or workspace storage.
 | `ToolKind` / `ToolCapability` | Operation IDs and input/output format compatibility |
 | `ToolTrustProfile` / `ToolQualificationLevel` | Qualification level (`unknown` → `smokeChecked` → `corpusChecked` → `oracleChecked` → `productionEligible`) plus evidence and known limitations |
 | `ToolEvidence` / `ToolEvidenceKind` | Evidence backing a qualification level |
-| `ToolEvidenceQualificationSummary` | Generic pass/fail summary for evidence produced by engine-owned corpus/oracle qualification |
+| `ToolCorpusQualificationResult` / `ToolOracleQualificationResult` / `ToolHealthQualificationResult` | Canonical raw results whose passing state is derived independently by this package |
 | `ToolHealthCheckResult` / `ToolHealthStatus` | Pass/fail/blocked/notChecked with diagnostics |
 | `ToolTrustRequirement` | What a flow stage demands: operation, minimum qualification, formats, required evidence, qualified evidence, freshness, health gate |
 | `ToolTrustEvaluator` / `ToolTrustDecision` | Eligible/rejected verdict from descriptor + requirement + health |
@@ -64,9 +64,10 @@ no dependency on project, run, or workspace storage.
 - `requiredEvidenceKinds` checks that the requested evidence exists on either
   the descriptor trust profile or the latest health result.
 - `requiredQualifiedEvidenceKinds` is stronger: evidence of that kind must exist
-  and at least one matching `ToolEvidence` must carry a
-  `ToolEvidenceQualificationSummary` with `qualified == true` and a non-empty,
-  SHA-256-bound immutable artifact. Metrics or policy identifiers alone are not evidence.
+  and at least one matching `ToolEvidence` must reference a non-empty,
+  SHA-256-bound immutable artifact. `ToolQualification` reads that artifact and
+  derives acceptance from the canonical corpus, oracle, or health result; a
+  caller-provided Boolean is not accepted as qualification evidence.
 - `minimumLevel` and the descriptor's declared `trustProfile.level` both imply
   minimum qualified evidence. A tool cannot self-declare a higher level without
   evidence that supports that level.
@@ -74,11 +75,12 @@ no dependency on project, run, or workspace storage.
   must have at least one matching `ToolEvidence.checkedAt` timestamp that is not
   older than the declared age at evaluation time. Missing timestamps are not
   treated as fresh evidence.
-- Engine packages own domain-specific qualification reports. For example, DRC/LVS
-  corpus runners persist their native summary and policy result, then callers map
-  the relevant aggregate metrics and failure codes into
-  `ToolEvidenceQualificationSummary`. `ToolQualification` does not import DRC/LVS
-  engine types.
+- Engine packages produce domain results and retain their input/output artifacts.
+  The qualification runner records per-case comparisons in canonical
+  `ToolCorpusQualificationResult`, `ToolOracleQualificationResult`, or
+  `ToolHealthQualificationResult` artifacts. `ToolQualification` verifies their
+  integrity, identity, scope, timestamps, and derived passing state without
+  importing DRC/LVS/PEX domain types.
 - `productionEligible` additionally requires a retained
   `ToolProcessQualificationEvidence` whose tool ID/version/binary, process, PDK,
   deck and independent oracle scope match exactly. Its corpus, oracle, health,
@@ -95,9 +97,10 @@ no dependency on project, run, or workspace storage.
 
 ```mermaid
 flowchart LR
-  Engine["DRC/LVS/PEX Engine"] --> Report["Native qualification report"]
-  Report --> Evidence["ToolEvidence\nkind: corpus/oracle\nqualification summary"]
-  Evidence --> Gate["ToolTrustEvaluator"]
+  Engine["DRC/LVS/PEX Engine"] --> Result["Domain result + artifacts"]
+  Result --> Runner["Independent qualification runner"]
+  Runner --> Evidence["Canonical corpus/oracle/health result"]
+  Evidence --> Gate["ToolTrustEvaluator\nverify + derive"]
   Gate --> Decision["eligible / rejected"]
 ```
 

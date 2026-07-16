@@ -40,13 +40,6 @@ struct ToolQualificationCLITests {
               "hexadecimalValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             },
             "byteCount": 1
-          },
-          "qualification": {
-            "qualified": true,
-            "policyID": "policy-\(kind)",
-            "observedMetrics": {},
-            "observedCounts": {},
-            "failureCodes": []
           }
         }
         """
