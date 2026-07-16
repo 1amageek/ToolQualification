@@ -32,17 +32,17 @@ struct ToolProcessQualificationEvidenceTests {
         let scope = ToolQualificationScope(
             implementationID: "magic-pex",
             toolVersion: "8.3.489",
-            binaryDigest: tool.sha256,
+            binaryDigest: tool.digest.hexadecimalValue,
             algorithmVersion: "driver-v1",
             processProfileID: "sky130A",
-            processProfileDigest: process.sha256,
-            deckDigest: deck.sha256,
+            processProfileDigest: process.digest.hexadecimalValue,
+            deckDigest: deck.digest.hexadecimalValue,
             pdkID: "sky130A",
-            pdkDigest: pdk.sha256,
+            pdkDigest: pdk.digest.hexadecimalValue,
             oracle: ToolOracleQualificationScope(
                 implementationID: "calibre-pex",
                 version: "2026.1",
-                binaryDigest: oracleTool.sha256
+                binaryDigest: oracleTool.digest.hexadecimalValue
             )
         )
         let artifacts = try ["corpus", "oracle", "health", "input", "output"]

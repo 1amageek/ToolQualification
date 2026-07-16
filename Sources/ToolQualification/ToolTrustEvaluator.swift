@@ -1,7 +1,7 @@
 import Foundation
 import CircuiteFoundation
 
-public struct ToolTrustEvaluator: Sendable {
+public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
     private let processEvidenceValidator: any ToolProcessQualificationEvidenceValidating
 
     public init(
@@ -339,6 +339,19 @@ public struct ToolTrustEvaluator: Sendable {
         }
         do {
             switch evidence.kind {
+            case .smoke:
+                let result = try ToolSmokeQualificationResult.decodeCanonical(from: data)
+                guard result.toolID == toolID,
+                      result.issuer.kind == .engine,
+                      artifact.producer == result.issuer else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "smoke result identity or issuer does not match")
+                }
+                guard result.checkedAt == evidence.checkedAt else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_TIME_MISMATCH", detail: "smoke checkedAt does not match")
+                }
+                guard result.isPassing else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_SMOKE_FAILED", detail: "smoke diagnostics contain an error")
+                }
             case .corpus:
                 let result = try ToolCorpusQualificationResult.decodeCanonical(from: data)
                 guard result.toolID == toolID,
@@ -390,8 +403,6 @@ public struct ToolTrustEvaluator: Sendable {
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_HEALTH_FAILED", detail: "health diagnostics contain an error")
                 }
-            case .smoke:
-                return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_KIND_UNSUPPORTED", detail: "smoke evidence has no typed qualification result")
             }
             return nil
         } catch {
@@ -422,7 +433,7 @@ public struct ToolTrustEvaluator: Sendable {
         case .unknown:
             []
         case .smokeChecked:
-            []
+            [.smoke]
         case .corpusChecked:
             [.corpus]
         case .oracleChecked:

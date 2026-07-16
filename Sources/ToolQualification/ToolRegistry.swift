@@ -36,7 +36,7 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
         requirement: ToolTrustRequirement,
         healthResults: [String: ToolHealthCheckResult] = [:],
         artifactReader: (any ToolQualificationArtifactReading)? = nil,
-        evaluator: ToolTrustEvaluator = ToolTrustEvaluator()
+        evaluator: any ToolTrustEvaluating = ToolTrustEvaluator()
     ) async -> [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] {
         var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
         for descriptor in descriptors.values {
@@ -64,7 +64,7 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
         requirement: ToolTrustRequirement,
         healthResults: [String: ToolHealthCheckResult] = [:],
         artifactReader: (any ToolQualificationArtifactReading)? = nil,
-        evaluator: ToolTrustEvaluator = ToolTrustEvaluator()
+        evaluator: any ToolTrustEvaluating = ToolTrustEvaluator()
     ) async -> ToolDescriptor? {
         await candidates(
             requirement: requirement,

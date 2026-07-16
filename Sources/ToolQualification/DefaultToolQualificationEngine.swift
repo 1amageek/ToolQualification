@@ -2,13 +2,13 @@ import CircuiteFoundation
 import Foundation
 
 public struct DefaultToolQualificationEngine: ToolQualificationEngine {
-    private let evaluator: ToolTrustEvaluator
+    private let evaluator: any ToolTrustEvaluating
     private let artifactReader: any ToolQualificationArtifactReading
     private let producer: ProducerIdentity
     private let completionDate: @Sendable () -> Date
 
     public init(
-        evaluator: ToolTrustEvaluator = ToolTrustEvaluator(),
+        evaluator: any ToolTrustEvaluating = ToolTrustEvaluator(),
         artifactReader: any ToolQualificationArtifactReading,
         producer: ProducerIdentity,
         completionDate: @escaping @Sendable () -> Date = { Date() }

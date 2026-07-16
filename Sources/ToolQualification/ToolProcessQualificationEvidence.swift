@@ -125,11 +125,11 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         }
         let tool = identityArtifacts.toolExecutable
         let oracle = identityArtifacts.oracleExecutable
-        return tool.sha256.caseInsensitiveCompare(scope.binaryDigest) == .orderedSame
-            && identityArtifacts.processProfile.sha256.caseInsensitiveCompare(scope.processProfileDigest) == .orderedSame
-            && identityArtifacts.pdk.sha256.caseInsensitiveCompare(pdkDigest) == .orderedSame
-            && identityArtifacts.ruleDeck.sha256.caseInsensitiveCompare(scope.deckDigest) == .orderedSame
-            && oracle.sha256.caseInsensitiveCompare(oracleScope.binaryDigest) == .orderedSame
+        return tool.digest.hexadecimalValue.caseInsensitiveCompare(scope.binaryDigest) == .orderedSame
+            && identityArtifacts.processProfile.digest.hexadecimalValue.caseInsensitiveCompare(scope.processProfileDigest) == .orderedSame
+            && identityArtifacts.pdk.digest.hexadecimalValue.caseInsensitiveCompare(pdkDigest) == .orderedSame
+            && identityArtifacts.ruleDeck.digest.hexadecimalValue.caseInsensitiveCompare(scope.deckDigest) == .orderedSame
+            && oracle.digest.hexadecimalValue.caseInsensitiveCompare(oracleScope.binaryDigest) == .orderedSame
             && tool.producer?.kind == .tool
             && tool.producer?.identifier == scope.implementationID
             && tool.producer?.version == scope.toolVersion

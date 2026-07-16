@@ -192,17 +192,17 @@ private struct Fixture {
         scope = ToolQualificationScope(
             implementationID: "qualified-scan",
             toolVersion: "1.0.0",
-            binaryDigest: tool.sha256,
+            binaryDigest: tool.digest.hexadecimalValue,
             algorithmVersion: "scan-v1",
             processProfileID: "fixture-process",
-            processProfileDigest: process.sha256,
-            deckDigest: deck.sha256,
+            processProfileDigest: process.digest.hexadecimalValue,
+            deckDigest: deck.digest.hexadecimalValue,
             pdkID: "fixture-pdk",
-            pdkDigest: pdk.sha256,
+            pdkDigest: pdk.digest.hexadecimalValue,
             oracle: ToolOracleQualificationScope(
                 implementationID: "independent-scan-oracle",
                 version: "2.0.0",
-                binaryDigest: oracleTool.sha256
+                binaryDigest: oracleTool.digest.hexadecimalValue
             )
         )
         let checkedAt = Date(timeIntervalSince1970: 1_000)
