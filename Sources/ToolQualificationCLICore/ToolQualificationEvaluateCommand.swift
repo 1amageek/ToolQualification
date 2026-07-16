@@ -56,7 +56,7 @@ public struct ToolQualificationEvaluateCommand: Sendable {
 
     public init() {}
 
-    public func execute(options: Options) throws -> ToolQualificationCLIInvocationResult {
+    public func execute(options: Options) async throws -> ToolQualificationCLIInvocationResult {
         let descriptor = try ToolQualificationCLIJSONCoding.decode(
             ToolDescriptor.self,
             atPath: options.descriptorPath
@@ -75,7 +75,7 @@ public struct ToolQualificationEvaluateCommand: Sendable {
             health = nil
         }
 
-        let decision = ToolTrustEvaluator().evaluate(
+        let decision = await ToolTrustEvaluator().evaluate(
             descriptor: descriptor,
             requirement: requirement,
             health: health

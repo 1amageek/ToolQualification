@@ -87,9 +87,9 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
             ToolQualificationScope.self,
             forKey: .qualificationScope
         )
-        self.requireIndependentQualificationEvidence = try container.decodeIfPresent(
+        self.requireIndependentQualificationEvidence = try container.decode(
             Bool.self,
             forKey: .requireIndependentQualificationEvidence
-        ) ?? false
+        )
     }
 }

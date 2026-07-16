@@ -1,5 +1,6 @@
 import Foundation
 import ToolQualification
+import CircuiteFoundation
 
 /// Implements `toolqualification validate-process-evidence`.
 ///
@@ -9,12 +10,14 @@ import ToolQualification
 public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
     public struct Options: Sendable, Equatable {
         public var evidencePath: String
+        public var workspaceRoot: String
         public var requirePDKScope: Bool
         public var evaluatedAt: Date
         public var pretty: Bool
 
         public init(arguments: [String], now: Date = Date()) throws {
             var evidencePath: String?
+            var workspaceRoot: String?
             var requirePDKScope = false
             var evaluatedAt = now
             var pretty = false
@@ -23,6 +26,8 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
                 switch argument {
                 case "--evidence":
                     evidencePath = try cursor.requireValue(for: argument)
+                case "--workspace-root":
+                    workspaceRoot = try cursor.requireValue(for: argument)
                 case "--require-pdk":
                     requirePDKScope = true
                 case "--at":
@@ -46,7 +51,13 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
                     "Missing required argument: --evidence"
                 )
             }
+            guard let workspaceRoot else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "Missing required argument: --workspace-root"
+                )
+            }
             self.evidencePath = evidencePath
+            self.workspaceRoot = workspaceRoot
             self.requirePDKScope = requirePDKScope
             self.evaluatedAt = evaluatedAt
             self.pretty = pretty
@@ -55,13 +66,27 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
 
     public init() {}
 
-    public func execute(options: Options) throws -> ToolQualificationCLIInvocationResult {
+    public func execute(options: Options) async throws -> ToolQualificationCLIInvocationResult {
         let evidence = try ToolQualificationCLIJSONCoding.decode(
             ToolProcessQualificationEvidence.self,
             atPath: options.evidencePath
         )
-        let structurallyValid = evidence.isStructurallyValid
-        let qualified = evidence.isQualified(
+        let reader = LocalToolQualificationArtifactReader(
+            workspaceRoot: URL(filePath: options.workspaceRoot)
+        )
+        let derivationVerified: Bool
+        do {
+            try await ToolProcessQualificationEvidenceValidator().validate(
+                evidence,
+                reading: reader,
+                at: options.evaluatedAt
+            )
+            derivationVerified = true
+        } catch {
+            derivationVerified = false
+        }
+        let structurallyValid = evidence.isStructurallyValid && derivationVerified
+        let qualified = structurallyValid && evidence.isQualified(
             at: options.evaluatedAt,
             requirePDKScope: options.requirePDKScope
         )
@@ -110,7 +135,7 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
         if evidence.status != .qualified {
             result.append("process-evidence-status-not-qualified")
         }
-        if !evidence.independenceVerified {
+        if !evidence.hasIndependentOracleEvidence {
             result.append("process-evidence-independence-unverified")
         }
         if !evidence.blockers.isEmpty {

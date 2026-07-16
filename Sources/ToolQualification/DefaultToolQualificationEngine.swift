@@ -3,15 +3,18 @@ import Foundation
 
 public struct DefaultToolQualificationEngine: ToolQualificationEngine {
     private let evaluator: ToolTrustEvaluator
+    private let artifactReader: any ToolQualificationArtifactReading
     private let producer: ProducerIdentity
     private let completionDate: @Sendable () -> Date
 
     public init(
         evaluator: ToolTrustEvaluator = ToolTrustEvaluator(),
+        artifactReader: any ToolQualificationArtifactReading,
         producer: ProducerIdentity,
         completionDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.evaluator = evaluator
+        self.artifactReader = artifactReader
         self.producer = producer
         self.completionDate = completionDate
     }
@@ -21,10 +24,11 @@ public struct DefaultToolQualificationEngine: ToolQualificationEngine {
     ) async throws -> ToolQualificationResult {
         try Task.checkCancellation()
 
-        let decision = evaluator.evaluate(
+        let decision = await evaluator.evaluate(
             descriptor: request.descriptor,
             requirement: request.requirement,
             health: request.health,
+            artifactReader: artifactReader,
             evaluatedAt: request.evaluatedAt
         )
         let diagnostics = try foundationDiagnostics(

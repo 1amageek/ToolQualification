@@ -5,12 +5,14 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
     public struct Options: Sendable, Equatable {
         public var inputPath: String
         public var outputPath: String
+        public var workspaceRoot: String
         public var evaluatedAt: Date
         public var pretty: Bool
 
         public init(arguments: [String], now: Date = Date()) throws {
             var inputPath: String?
             var outputPath: String?
+            var workspaceRoot: String?
             var evaluatedAt = now
             var pretty = false
             var cursor = ToolQualificationCLIArgumentCursor(arguments: arguments)
@@ -20,6 +22,8 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                     inputPath = try cursor.requireValue(for: argument)
                 case "--output":
                     outputPath = try cursor.requireValue(for: argument)
+                case "--workspace-root":
+                    workspaceRoot = try cursor.requireValue(for: argument)
                 case "--at":
                     let value = try cursor.requireValue(for: argument)
                     guard let seconds = Double(value), seconds.isFinite else {
@@ -46,8 +50,14 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                     "Missing required argument: --output"
                 )
             }
+            guard let workspaceRoot else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "Missing required argument: --workspace-root"
+                )
+            }
             self.inputPath = inputPath
             self.outputPath = outputPath
+            self.workspaceRoot = workspaceRoot
             self.evaluatedAt = evaluatedAt
             self.pretty = pretty
         }
@@ -55,14 +65,18 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
 
     public init() {}
 
-    public func execute(options: Options) throws -> ToolQualificationCLIInvocationResult {
+    public func execute(options: Options) async throws -> ToolQualificationCLIInvocationResult {
         let request = try ToolQualificationCLIJSONCoding.decode(
             ToolProcessQualificationEvidenceBuildRequest.self,
             atPath: options.inputPath
         )
         do {
-            let evidence = try ToolProcessQualificationEvidenceBuilder().build(
+            let reader = LocalToolQualificationArtifactReader(
+                workspaceRoot: URL(filePath: options.workspaceRoot)
+            )
+            let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
+                reading: reader,
                 at: options.evaluatedAt
             )
             let encoded = try ToolQualificationCLIJSONCoding.encode(
@@ -86,7 +100,7 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                 qualificationID: evidence.qualificationID,
                 toolID: evidence.toolID,
                 status: evidence.status,
-                qualified: true,
+                qualified: evidence.isQualified(at: options.evaluatedAt, requirePDKScope: true),
                 scope: evidence.scope,
                 evidenceArtifactIDs: evidence.evidenceArtifactIDs,
                 diagnostics: []

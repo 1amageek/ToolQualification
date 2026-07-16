@@ -32,26 +32,25 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
         descriptors[descriptor.toolID] = descriptor
     }
 
-    public mutating func replaceUnchecked(_ descriptor: ToolDescriptor) {
-        descriptors[descriptor.toolID] = descriptor
-    }
-
     public func candidates(
         requirement: ToolTrustRequirement,
         healthResults: [String: ToolHealthCheckResult] = [:],
+        artifactReader: (any ToolQualificationArtifactReading)? = nil,
         evaluator: ToolTrustEvaluator = ToolTrustEvaluator()
-    ) -> [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] {
-        descriptors.values
-            .map { descriptor in
-                (
-                    descriptor,
-                    evaluator.evaluate(
-                        descriptor: descriptor,
-                        requirement: requirement,
-                        health: healthResults[descriptor.toolID]
-                    )
+    ) async -> [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] {
+        var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
+        for descriptor in descriptors.values {
+            evaluated.append((
+                descriptor,
+                await evaluator.evaluate(
+                    descriptor: descriptor,
+                    requirement: requirement,
+                    health: healthResults[descriptor.toolID],
+                    artifactReader: artifactReader
                 )
-            }
+            ))
+        }
+        return evaluated
             .filter { $0.decision.status == .eligible }
             .sorted { lhs, rhs in
                 if lhs.descriptor.trustProfile.level != rhs.descriptor.trustProfile.level {
@@ -64,11 +63,13 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
     public func select(
         requirement: ToolTrustRequirement,
         healthResults: [String: ToolHealthCheckResult] = [:],
+        artifactReader: (any ToolQualificationArtifactReading)? = nil,
         evaluator: ToolTrustEvaluator = ToolTrustEvaluator()
-    ) -> ToolDescriptor? {
-        candidates(
+    ) async -> ToolDescriptor? {
+        await candidates(
             requirement: requirement,
             healthResults: healthResults,
+            artifactReader: artifactReader,
             evaluator: evaluator
         ).first?.descriptor
     }

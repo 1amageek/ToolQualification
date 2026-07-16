@@ -32,6 +32,7 @@ struct DefaultToolQualificationEngineTests {
             version: "1.0.0"
         )
         let engine = DefaultToolQualificationEngine(
+            artifactReader: UnusedArtifactReader(),
             producer: producer,
             completionDate: { Date(timeIntervalSince1970: 101) }
         )
@@ -79,6 +80,7 @@ struct DefaultToolQualificationEngineTests {
             evaluatedAt: Date(timeIntervalSince1970: 100)
         )
         let engine = DefaultToolQualificationEngine(
+            artifactReader: UnusedArtifactReader(),
             producer: try ProducerIdentity(
                 kind: .library,
                 identifier: "ToolQualification",
@@ -128,6 +130,7 @@ struct DefaultToolQualificationEngineTests {
             evaluatedAt: Date(timeIntervalSince1970: 100)
         )
         let engine = DefaultToolQualificationEngine(
+            artifactReader: UnusedArtifactReader(),
             producer: try ProducerIdentity(
                 kind: .library,
                 identifier: "ToolQualification",
@@ -139,5 +142,13 @@ struct DefaultToolQualificationEngineTests {
         await #expect(throws: ToolQualificationEngineError.invalidDiagnosticCode("")) {
             try await engine.execute(request)
         }
+    }
+}
+
+private struct UnusedArtifactReader: ToolQualificationArtifactReading {
+    func verifiedData(for reference: ArtifactReference) async throws -> Data {
+        throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+            "Unexpected artifact read for \(reference.id.rawValue)."
+        )
     }
 }

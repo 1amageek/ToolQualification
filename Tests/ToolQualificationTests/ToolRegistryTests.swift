@@ -5,69 +5,33 @@ import ToolQualification
 struct ToolRegistryTests {
     @Test func upsertReplacesDescriptorByToolID() throws {
         var registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "drc", level: .smokeChecked),
+            makeDescriptor(toolID: "drc", level: .unknown),
         ])
 
-        try registry.upsert(makeDescriptor(toolID: "drc", level: .productionEligible))
+        try registry.upsert(makeDescriptor(toolID: "drc", level: .smokeChecked))
 
-        #expect(registry.descriptor(toolID: "drc")?.trustProfile.level == .productionEligible)
+        #expect(registry.descriptor(toolID: "drc")?.trustProfile.level == .smokeChecked)
     }
 
     @Test func upsertRejectsInvalidToolID() {
         var registry = ToolRegistry()
 
         #expect(throws: ToolQualificationError.invalidToolID("../drc")) {
-            try registry.upsert(makeDescriptor(toolID: "../drc", level: .smokeChecked))
+            try registry.upsert(makeDescriptor(toolID: "../drc", level: .unknown))
         }
     }
 
-    @Test func selectReturnsMostQualifiedEligibleCandidate() {
+    @Test func deterministicTieBreakUsesToolID() async {
         let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "b-tool", level: .corpusChecked),
-            makeDescriptor(toolID: "a-tool", level: .productionEligible),
-        ])
-        let health = [
-            "a-tool": ToolHealthCheckResult(toolID: "a-tool", status: .passed),
-            "b-tool": ToolHealthCheckResult(toolID: "b-tool", status: .passed),
-        ]
-
-        let selected = registry.select(
-            requirement: makeRequirement(),
-            healthResults: health
-        )
-
-        #expect(selected?.toolID == "a-tool")
-    }
-
-    @Test func selectSkipsFailedHealthCandidates() {
-        let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "better-but-failed", level: .productionEligible),
-            makeDescriptor(toolID: "lower-but-healthy", level: .corpusChecked),
-        ])
-        let health = [
-            "better-but-failed": ToolHealthCheckResult(toolID: "better-but-failed", status: .failed),
-            "lower-but-healthy": ToolHealthCheckResult(toolID: "lower-but-healthy", status: .passed),
-        ]
-
-        let selected = registry.select(
-            requirement: makeRequirement(),
-            healthResults: health
-        )
-
-        #expect(selected?.toolID == "lower-but-healthy")
-    }
-
-    @Test func deterministicTieBreakUsesToolID() {
-        let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "z-tool", level: .corpusChecked),
-            makeDescriptor(toolID: "a-tool", level: .corpusChecked),
+            makeDescriptor(toolID: "z-tool", level: .smokeChecked),
+            makeDescriptor(toolID: "a-tool", level: .smokeChecked),
         ])
         let health = [
             "a-tool": ToolHealthCheckResult(toolID: "a-tool", status: .passed),
             "z-tool": ToolHealthCheckResult(toolID: "z-tool", status: .passed),
         ]
 
-        let selected = registry.select(
+        let selected = await registry.select(
             requirement: makeRequirement(),
             healthResults: health
         )
@@ -75,36 +39,95 @@ struct ToolRegistryTests {
         #expect(selected?.toolID == "a-tool")
     }
 
+    @Test func selectPrefersTheMostQualifiedEligibleCandidate() async {
+        let registry = ToolRegistry(descriptors: [
+            makeDescriptor(toolID: "unknown-tool", level: .unknown),
+            makeDescriptor(toolID: "smoke-tool", level: .smokeChecked),
+        ])
+        let health = [
+            "unknown-tool": ToolHealthCheckResult(toolID: "unknown-tool", status: .passed),
+            "smoke-tool": ToolHealthCheckResult(toolID: "smoke-tool", status: .passed),
+        ]
+        let requirement = ToolTrustRequirement(
+            kind: .drc,
+            operationID: "run-drc",
+            minimumLevel: .unknown,
+            requiredInputFormats: [.oasis],
+            requiredOutputFormats: [.json]
+        )
+
+        let selected = await registry.select(requirement: requirement, healthResults: health)
+
+        #expect(selected?.toolID == "smoke-tool")
+    }
+
+    @Test func selectSkipsFailedHealthCandidates() async {
+        let registry = ToolRegistry(descriptors: [
+            makeDescriptor(toolID: "failed", level: .smokeChecked),
+            makeDescriptor(toolID: "healthy", level: .smokeChecked),
+        ])
+        let health = [
+            "failed": ToolHealthCheckResult(toolID: "failed", status: .failed),
+            "healthy": ToolHealthCheckResult(toolID: "healthy", status: .passed),
+        ]
+
+        let selected = await registry.select(
+            requirement: makeRequirement(),
+            healthResults: health
+        )
+
+        #expect(selected?.toolID == "healthy")
+    }
+
+    @Test func registryFailsClosedWhenQualifiedEvidenceCannotBeRead() async {
+        let registry = ToolRegistry(descriptors: [
+            makeDescriptor(
+                toolID: "corpus-tool",
+                level: .corpusChecked,
+                evidence: [ToolEvidence(evidenceID: "corpus", kind: .corpus)]
+            ),
+        ])
+
+        let selected = await registry.select(
+            requirement: ToolTrustRequirement(
+                kind: .drc,
+                operationID: "run-drc",
+                minimumLevel: .corpusChecked,
+                requiredInputFormats: [.oasis],
+                requiredOutputFormats: [.json]
+            ),
+            healthResults: [
+                "corpus-tool": ToolHealthCheckResult(toolID: "corpus-tool", status: .passed),
+            ]
+        )
+
+        #expect(selected == nil)
+    }
+
     @Test func validatingInitializerRejectsDuplicateToolIDs() {
         #expect(throws: ToolQualificationError.self) {
             try ToolRegistry(validating: [
+                makeDescriptor(toolID: "drc", level: .unknown),
                 makeDescriptor(toolID: "drc", level: .smokeChecked),
-                makeDescriptor(toolID: "drc", level: .productionEligible),
             ])
         }
-    }
-
-    @Test func replaceUncheckedIsExplicitDuplicateReplacementPath() {
-        let registry = ToolRegistry(descriptors: [
-            makeDescriptor(toolID: "drc", level: .smokeChecked),
-        ])
-        var mutable = registry
-        mutable.replaceUnchecked(makeDescriptor(toolID: "drc", level: .productionEligible))
-
-        #expect(mutable.descriptor(toolID: "drc")?.trustProfile.level == .productionEligible)
     }
 
     private func makeRequirement() -> ToolTrustRequirement {
         ToolTrustRequirement(
             kind: .drc,
             operationID: "run-drc",
-            minimumLevel: .corpusChecked,
+            minimumLevel: .smokeChecked,
             requiredInputFormats: [.oasis],
             requiredOutputFormats: [.json]
         )
     }
 
-    private func makeDescriptor(toolID: String, level: ToolQualificationLevel) -> ToolDescriptor {
+    private func makeDescriptor(
+        toolID: String,
+        level: ToolQualificationLevel,
+        evidence: [ToolEvidence] = []
+    ) -> ToolDescriptor {
         ToolDescriptor(
             toolID: toolID,
             displayName: toolID,
@@ -117,43 +140,8 @@ struct ToolRegistryTests {
                     outputFormats: [.json]
                 ),
             ],
-            trustProfile: ToolTrustProfile(level: level, evidence: evidenceSupporting(level: level)),
+            trustProfile: ToolTrustProfile(level: level, evidence: evidence),
             environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
-        )
-    }
-
-    private func evidenceSupporting(level: ToolQualificationLevel) -> [ToolEvidence] {
-        switch level {
-        case .unknown:
-            return []
-        case .smokeChecked:
-            return [qualifiedEvidence("smoke-1", kind: .smoke)]
-        case .corpusChecked:
-            return [qualifiedEvidence("corpus-1", kind: .corpus)]
-        case .oracleChecked:
-            return [
-                qualifiedEvidence("corpus-1", kind: .corpus),
-                qualifiedEvidence("oracle-1", kind: .oracle),
-            ]
-        case .productionEligible:
-            return [
-                qualifiedEvidence("corpus-1", kind: .corpus),
-                qualifiedEvidence("oracle-1", kind: .oracle),
-                qualifiedEvidence("production-approval-1", kind: .productionApproval),
-            ]
-        }
-    }
-
-    private func qualifiedEvidence(_ evidenceID: String, kind: ToolEvidenceKind) -> ToolEvidence {
-        ToolEvidence(
-            evidenceID: evidenceID,
-            kind: kind,
-            qualification: ToolEvidenceQualificationSummary(
-                qualified: true,
-                policyID: "unit-test-policy",
-                observedMetrics: ["passRate": 1],
-                observedCounts: ["caseCount": 1]
-            )
         )
     }
 }

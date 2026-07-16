@@ -3,8 +3,8 @@ import ToolQualificationCLICore
 
 @main
 struct ToolQualificationCLIEntry {
-    static func main() {
-        let exitCode = ToolQualificationCLI.run(
+    static func main() async {
+        let exitCode = await ToolQualificationCLI.run(
             arguments: Array(CommandLine.arguments.dropFirst())
         )
         Foundation.exit(exitCode)

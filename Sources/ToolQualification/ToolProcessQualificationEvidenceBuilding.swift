@@ -3,6 +3,7 @@ import Foundation
 public protocol ToolProcessQualificationEvidenceBuilding: Sendable {
     func build(
         _ request: ToolProcessQualificationEvidenceBuildRequest,
+        reading artifacts: any ToolQualificationArtifactReading,
         at date: Date
-    ) throws -> ToolProcessQualificationEvidence
+    ) async throws -> ToolProcessQualificationEvidence
 }

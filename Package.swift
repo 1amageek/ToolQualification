@@ -21,7 +21,10 @@ let package = Package(
         ),
         .target(
             name: "ToolQualificationCLICore",
-            dependencies: ["ToolQualification"]
+            dependencies: [
+                "ToolQualification",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+            ]
         ),
         .executableTarget(
             name: "ToolQualificationCLI",

@@ -9,7 +9,7 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
     case evidenceArtifactMissing(String)
     case invalidArtifact(String)
     case duplicateArtifact(String)
-    case independenceRequired
+    case artifactIntegrityFailed(String)
     case invalidValidityWindow
     case notValidAt
 
@@ -24,15 +24,15 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
         case .duplicateEvidenceID(let evidenceID):
             return "evidence ID \(evidenceID) is duplicated"
         case .evidenceNotQualified(let evidenceID):
-            return "evidence \(evidenceID) does not carry an independent passing qualification summary"
+            return "retained evidence \(evidenceID) does not derive a passing qualification from its raw result"
         case .evidenceArtifactMissing(let evidenceID):
             return "evidence \(evidenceID) has no artifact reference"
         case .invalidArtifact(let message):
             return "evidence artifact is invalid: \(message)"
         case .duplicateArtifact(let artifactID):
             return "evidence artifact \(artifactID) is duplicated"
-        case .independenceRequired:
-            return "independenceVerified must be true before a process record can be promoted"
+        case .artifactIntegrityFailed(let message):
+            return "process qualification artifact integrity failed: \(message)"
         case .invalidValidityWindow:
             return "qualifiedAt must precede expiresAt"
         case .notValidAt:

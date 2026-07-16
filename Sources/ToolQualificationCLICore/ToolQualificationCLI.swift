@@ -12,8 +12,8 @@ import ToolQualification
 /// diagnostic envelope on stderr.
 public enum ToolQualificationCLI {
     /// Runs the CLI against the real stdout/stderr file handles.
-    public static func run(arguments: [String]) -> Int32 {
-        let result = invoke(arguments: arguments)
+    public static func run(arguments: [String]) async -> Int32 {
+        let result = await invoke(arguments: arguments)
         if !result.standardOutput.isEmpty {
             FileHandle.standardOutput.write(Data(result.standardOutput.utf8))
         }
@@ -24,9 +24,9 @@ public enum ToolQualificationCLI {
     }
 
     /// Runs the CLI and captures all output. Used directly by tests.
-    public static func invoke(arguments: [String]) -> ToolQualificationCLIInvocationResult {
+    public static func invoke(arguments: [String]) async -> ToolQualificationCLIInvocationResult {
         do {
-            return try dispatch(arguments: arguments)
+            return try await dispatch(arguments: arguments)
         } catch let error as ToolQualificationCLIError {
             return failureResult(error)
         } catch {
@@ -34,7 +34,7 @@ public enum ToolQualificationCLI {
         }
     }
 
-    private static func dispatch(arguments: [String]) throws -> ToolQualificationCLIInvocationResult {
+    private static func dispatch(arguments: [String]) async throws -> ToolQualificationCLIInvocationResult {
         guard let command = arguments.first else {
             throw ToolQualificationCLIError.invalidArguments(
                 "Missing command. Run 'toolqualification --help' for usage."
@@ -49,7 +49,7 @@ public enum ToolQualificationCLI {
                 return helpResult(evaluateHelp)
             }
             let options = try ToolQualificationEvaluateCommand.Options(arguments: commandArguments)
-            return try ToolQualificationEvaluateCommand().execute(options: options)
+            return try await ToolQualificationEvaluateCommand().execute(options: options)
         case "evaluate-registry":
             if commandArguments.contains("--help") {
                 return helpResult(evaluateRegistryHelp)
@@ -57,7 +57,7 @@ public enum ToolQualificationCLI {
             let options = try ToolQualificationEvaluateRegistryCommand.Options(
                 arguments: commandArguments
             )
-            return try ToolQualificationEvaluateRegistryCommand().execute(options: options)
+            return try await ToolQualificationEvaluateRegistryCommand().execute(options: options)
         case "validate-process-evidence":
             if commandArguments.contains("--help") {
                 return helpResult(validateProcessEvidenceHelp)
@@ -65,7 +65,7 @@ public enum ToolQualificationCLI {
             let options = try ToolQualificationValidateProcessEvidenceCommand.Options(
                 arguments: commandArguments
             )
-            return try ToolQualificationValidateProcessEvidenceCommand().execute(options: options)
+            return try await ToolQualificationValidateProcessEvidenceCommand().execute(options: options)
         case "build-process-evidence":
             if commandArguments.contains("--help") {
                 return helpResult(buildProcessEvidenceHelp)
@@ -73,7 +73,7 @@ public enum ToolQualificationCLI {
             let options = try ToolQualificationBuildProcessEvidenceCommand.Options(
                 arguments: commandArguments
             )
-            return try ToolQualificationBuildProcessEvidenceCommand().execute(options: options)
+            return try await ToolQualificationBuildProcessEvidenceCommand().execute(options: options)
         default:
             throw ToolQualificationCLIError.invalidArguments(
                 "Unknown command: \(command). Run 'toolqualification --help' for usage."
@@ -208,6 +208,7 @@ public enum ToolQualificationCLI {
     OPTIONS:
       --input <build-request.json>  Build request containing scoped corpus,
                                     oracle, health and production-approval evidence (required)
+              --workspace-root <path> Workspace root used to verify every retained artifact (required)
       --output <evidence.json>      Qualified process record output path (required)
       --at <unix-seconds>           Require the validity window to contain this time; defaults to now
       --pretty                      Pretty-print the stdout JSON envelope and output record

@@ -58,7 +58,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
 
     public init() {}
 
-    public func execute(options: Options) throws -> ToolQualificationCLIInvocationResult {
+    public func execute(options: Options) async throws -> ToolQualificationCLIInvocationResult {
         let descriptors = try ToolQualificationCLIJSONCoding.decode(
             [ToolDescriptor].self,
             atPath: options.descriptorsPath
@@ -78,15 +78,16 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
         }
 
         let evaluator = ToolTrustEvaluator()
-        let evaluated = descriptors.map { descriptor in
-            (
+        var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
+        for descriptor in descriptors {
+            evaluated.append((
                 descriptor: descriptor,
-                decision: evaluator.evaluate(
+                decision: await evaluator.evaluate(
                     descriptor: descriptor,
                     requirement: requirement,
                     health: healthResults[descriptor.toolID]
                 )
-            )
+            ))
         }
         // Mirrors DesignFlowKernel DefaultFlowOrchestrator.evaluatedToolDecisions:
         // eligible first, then trust level descending, then toolID ascending.

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import ToolQualification
 import ToolQualificationCLICore
+import CircuiteFoundation
 
 @Suite("ToolQualificationCLITests")
 struct ToolQualificationCLITests {
@@ -26,6 +27,20 @@ struct ToolQualificationCLITests {
         {
           "evidenceID": "\(toolID)-\(kind)",
           "kind": "\(kind)",
+          "artifact": {
+            "id": "\(toolID)-\(kind)-artifact",
+            "locator": {
+              "location": { "storage": "workspaceRelative", "value": "qualification/\(toolID)-\(kind).json" },
+              "role": "output",
+              "kind": "evidence",
+              "format": "json"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "byteCount": 1
+          },
           "qualification": {
             "qualified": true,
             "policyID": "policy-\(kind)",
@@ -89,7 +104,8 @@ struct ToolQualificationCLITests {
           "requiredOutputFormats": [],
           "requiredEvidenceKinds": [],
           "requiredQualifiedEvidenceKinds": [],
-          "requirePassingHealthCheck": \(requirePassingHealthCheck)
+          "requirePassingHealthCheck": \(requirePassingHealthCheck),
+          "requireIndependentQualificationEvidence": false
         }
         """
     }
@@ -123,7 +139,7 @@ struct ToolQualificationCLITests {
 
     // MARK: - evaluate
 
-    @Test func evaluateEligibleToolExitsZero() throws {
+    @Test func evaluateEligibleToolExitsZero() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
             descriptorJSON(toolID: "sim.corespice"),
@@ -136,7 +152,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
@@ -154,7 +170,7 @@ struct ToolQualificationCLITests {
         #expect(envelope.inputs.healthPath == nil)
     }
 
-    @Test func evaluateWithPassingHealthCheckExitsZero() throws {
+    @Test func evaluateWithPassingHealthCheckExitsZero() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
             descriptorJSON(toolID: "sim.corespice"),
@@ -172,7 +188,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
@@ -186,7 +202,7 @@ struct ToolQualificationCLITests {
         #expect(envelope.inputs.healthStatus == .passed)
     }
 
-    @Test func evaluateRejectedToolExitsTwo() throws {
+    @Test func evaluateRejectedToolExitsTwo() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
             descriptorJSON(toolID: "sim.corespice", level: "smokeChecked"),
@@ -199,7 +215,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
@@ -214,7 +230,7 @@ struct ToolQualificationCLITests {
 
     // MARK: - evaluate-registry
 
-    @Test func evaluateRegistryRanksDecisionsAndSelectsFirstEligible() throws {
+    @Test func evaluateRegistryRanksDecisionsAndSelectsFirstEligible() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorsPath = try write(
             """
@@ -234,7 +250,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate-registry",
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
@@ -242,18 +258,18 @@ struct ToolQualificationCLITests {
 
         #expect(result.exitCode == 0)
         let envelope = try decodeStandardOutput(ToolQualificationRegistryEnvelope.self, from: result)
-        // Eligible first, trust level descending, then toolID ascending;
-        // rejected tools follow with the same secondary ordering.
-        #expect(envelope.decisions.map(\.toolID) == ["z.high", "a.tool", "b.tool", "r.mismatch"])
-        #expect(envelope.selectedToolID == "z.high")
+        // Smoke-only descriptors remain eligible; an oracle-level claim fails
+        // closed because its retained raw corpus and oracle results are not read.
+        #expect(envelope.decisions.map(\.toolID) == ["a.tool", "b.tool", "z.high", "r.mismatch"])
+        #expect(envelope.selectedToolID == "a.tool")
         #expect(envelope.evaluatedCount == 4)
-        #expect(envelope.eligibleCount == 3)
+        #expect(envelope.eligibleCount == 2)
         let mismatch = try #require(envelope.decisions.last)
         #expect(!mismatch.eligible)
         #expect(mismatch.decision.diagnostics.contains { $0.code == "TOOL_KIND_MISMATCH" })
     }
 
-    @Test func evaluateRegistryAppliesHealthResultsByToolID() throws {
+    @Test func evaluateRegistryAppliesHealthResultsByToolID() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorsPath = try write(
             """
@@ -281,7 +297,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate-registry",
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
@@ -297,7 +313,7 @@ struct ToolQualificationCLITests {
         #expect(envelope.eligibleCount == 1)
     }
 
-    @Test func evaluateRegistryWithNoEligibleToolExitsTwo() throws {
+    @Test func evaluateRegistryWithNoEligibleToolExitsTwo() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorsPath = try write(
             """
@@ -315,7 +331,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate-registry",
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
@@ -330,42 +346,17 @@ struct ToolQualificationCLITests {
 
     // MARK: - validate-process-evidence
 
-    @Test func validateProcessEvidenceReportsQualifiedScopedRecord() throws {
+    @Test func validateProcessEvidenceReportsQualifiedScopedRecord() async throws {
         let directory = try makeTemporaryDirectory()
-        let evidencePath = try write(
-            """
-            {
-              "schemaVersion": 1,
-              "qualificationID": "sky130-pex-production-v1",
-              "toolID": "magic-pex",
-              "scope": {
-                "implementationID": "magic-pex",
-                "binaryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "algorithmVersion": "magic-8.3.652",
-                "processProfileID": "sky130A",
-                "deckDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                "pdkID": "sky130A",
-                "pdkDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-              },
-              "status": "qualified",
-              "corpusEvidenceIDs": ["corpus"],
-              "oracleEvidenceIDs": ["magic-pex"],
-              "healthEvidenceIDs": ["magic-health"],
-              "approvalEvidenceIDs": ["human-approval"],
-              "evidenceArtifactIDs": ["qualification.json"],
-              "independenceVerified": true,
-              "blockers": [],
-              "qualifiedAt": "1970-01-01T00:01:40.000Z",
-              "expiresAt": "1970-01-01T00:03:20.000Z"
-            }
-            """,
-            named: "process-evidence.json",
-            in: directory
-        )
+        let evidence = try await makeValidationEvidence(in: directory, includePDK: true)
+        let evidenceURL = directory.appendingPathComponent("process-evidence.json")
+        let encoder = JSONEncoder()
+        try encoder.encode(evidence).write(to: evidenceURL, options: .atomic)
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "validate-process-evidence",
-            "--evidence", evidencePath,
+            "--evidence", evidenceURL.path,
+            "--workspace-root", directory.path,
             "--require-pdk",
             "--at", "150",
         ])
@@ -381,40 +372,17 @@ struct ToolQualificationCLITests {
         #expect(envelope.diagnostics.isEmpty)
     }
 
-    @Test func validateProcessEvidenceRejectsMissingPDKScope() throws {
+    @Test func validateProcessEvidenceRejectsMissingPDKScope() async throws {
         let directory = try makeTemporaryDirectory()
-        let evidencePath = try write(
-            """
-            {
-              "schemaVersion": 1,
-              "qualificationID": "qualification",
-              "toolID": "native-tool",
-              "scope": {
-                "implementationID": "native-tool",
-                "binaryDigest": "binary",
-                "algorithmVersion": "algorithm",
-                "processProfileID": "process",
-                "deckDigest": "deck"
-              },
-              "status": "qualified",
-              "corpusEvidenceIDs": ["corpus"],
-              "oracleEvidenceIDs": ["oracle"],
-              "healthEvidenceIDs": ["health"],
-              "approvalEvidenceIDs": ["approval"],
-              "evidenceArtifactIDs": ["record"],
-              "independenceVerified": true,
-              "blockers": [],
-              "qualifiedAt": "1970-01-01T00:01:40.000Z",
-              "expiresAt": "1970-01-01T00:03:20.000Z"
-            }
-            """,
-            named: "process-evidence.json",
-            in: directory
-        )
+        let evidence = try await makeValidationEvidence(in: directory, includePDK: false)
+        let evidenceURL = directory.appendingPathComponent("process-evidence.json")
+        let encoder = JSONEncoder()
+        try encoder.encode(evidence).write(to: evidenceURL, options: .atomic)
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "validate-process-evidence",
-            "--evidence", evidencePath,
+            "--evidence", evidenceURL.path,
+            "--workspace-root", directory.path,
             "--require-pdk",
             "--at", "150",
         ])
@@ -428,9 +396,166 @@ struct ToolQualificationCLITests {
         #expect(envelope.diagnostics.contains("process-evidence-pdk-scope-incomplete"))
     }
 
+    private func makeValidationEvidence(
+        in root: URL,
+        includePDK: Bool
+    ) async throws -> ToolProcessQualificationEvidence {
+        let toolProducer = try ProducerIdentity(kind: .tool, identifier: "magic-pex", version: "8.3.652")
+        let oracleProducer = try ProducerIdentity(kind: .tool, identifier: "calibre-pex", version: "2026.1")
+        let tool = try validationArtifact("tool", root: root, producer: toolProducer)
+        let process = try validationArtifact("process", root: root)
+        let pdk = try validationArtifact("pdk", root: root)
+        let deck = try validationArtifact("deck", root: root)
+        let oracleTool = try validationArtifact("oracle-tool", root: root, producer: oracleProducer)
+        let identity = ToolProcessQualificationArtifacts(
+            toolExecutable: tool,
+            processProfile: process,
+            pdk: pdk,
+            ruleDeck: deck,
+            oracleExecutable: oracleTool
+        )
+        let scope = ToolQualificationScope(
+            implementationID: "magic-pex",
+            toolVersion: "8.3.652",
+            binaryDigest: tool.sha256,
+            algorithmVersion: "magic-driver-v2",
+            processProfileID: "sky130A",
+            processProfileDigest: process.sha256,
+            deckDigest: deck.sha256,
+            pdkID: "sky130A",
+            pdkDigest: pdk.sha256,
+            oracle: ToolOracleQualificationScope(
+                implementationID: "calibre-pex",
+                version: "2026.1",
+                binaryDigest: oracleTool.sha256
+            )
+        )
+        let input = try validationArtifact("input", root: root)
+        let output = try validationArtifact("output", root: root)
+        let issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1.0.0")
+        let checkedAt = Date(timeIntervalSince1970: 120)
+        let corpus = try validationArtifact(
+            "corpus",
+            root: root,
+            data: ToolCorpusQualificationResult(
+                resultID: "corpus",
+                qualificationID: "sky130-pex-production-v1",
+                toolID: "magic-pex",
+                scope: scope,
+                issuer: issuer,
+                inputArtifacts: [input],
+                outputArtifacts: [output],
+                cases: [ToolQualificationCaseOutcome(
+                    caseID: "case",
+                    coverageTags: ["fixture"],
+                    comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                )],
+                checkedAt: checkedAt
+            ).canonicalData(),
+            producer: issuer
+        )
+        let oracle = try validationArtifact(
+            "oracle",
+            root: root,
+            data: ToolOracleQualificationResult(
+                resultID: "oracle",
+                qualificationID: "sky130-pex-production-v1",
+                primaryToolID: "magic-pex",
+                oracleToolID: "calibre-pex",
+                scope: scope,
+                issuer: issuer,
+                inputArtifacts: [input],
+                primaryOutputArtifacts: [output],
+                oracleOutputArtifacts: [output],
+                cases: [ToolOracleCaseComparison(
+                    caseID: "case",
+                    primary: ToolQualificationCaseOutcome(
+                        caseID: "case",
+                        coverageTags: ["fixture"],
+                        comparisons: [ToolQualificationMetricComparison(metricID: "primary", observed: 0, expected: 0)]
+                    ),
+                    oracle: ToolQualificationCaseOutcome(
+                        caseID: "case",
+                        coverageTags: ["fixture"],
+                        comparisons: [ToolQualificationMetricComparison(metricID: "oracle", observed: 0, expected: 0)]
+                    ),
+                    agreementComparisons: [ToolQualificationMetricComparison(metricID: "agreement", observed: 0, expected: 0)]
+                )],
+                checkedAt: checkedAt
+            ).canonicalData(),
+            producer: issuer
+        )
+        let health = try validationArtifact(
+            "health",
+            root: root,
+            data: ToolHealthQualificationResult(
+                resultID: "health",
+                qualificationID: "sky130-pex-production-v1",
+                toolID: "magic-pex",
+                scope: scope,
+                issuer: issuer,
+                inputArtifacts: [input],
+                outputArtifacts: [output],
+                checkedAt: checkedAt
+            ).canonicalData(),
+            producer: issuer
+        )
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            ToolProcessQualificationEvidenceBuildRequest(
+                qualificationID: "sky130-pex-production-v1",
+                toolID: "magic-pex",
+                scope: scope,
+                identityArtifacts: identity,
+                corpusResultArtifacts: [corpus],
+                oracleResultArtifacts: [oracle],
+                healthResultArtifacts: [health],
+                inputArtifacts: [input],
+                outputArtifacts: [output],
+                qualifiedAt: Date(timeIntervalSince1970: 100),
+                expiresAt: Date(timeIntervalSince1970: 200)
+            ),
+            reading: LocalToolQualificationArtifactReader(workspaceRoot: root),
+            at: Date(timeIntervalSince1970: 150)
+        )
+        guard !includePDK else { return evidence }
+        var object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(evidence)) as? [String: Any]
+        )
+        var encodedScope = try #require(object["scope"] as? [String: Any])
+        encodedScope.removeValue(forKey: "pdkID")
+        encodedScope.removeValue(forKey: "pdkDigest")
+        object["scope"] = encodedScope
+        return try JSONDecoder().decode(
+            ToolProcessQualificationEvidence.self,
+            from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        )
+    }
+
+    private func validationArtifact(
+        _ id: String,
+        root: URL,
+        data: Data? = nil,
+        producer: ProducerIdentity? = nil
+    ) throws -> ArtifactReference {
+        let path = "qualification/\(id).json"
+        let url = root.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try (data ?? Data(id.utf8)).write(to: url, options: .atomic)
+        return try LocalArtifactReferencer().reference(
+            ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: path),
+                role: .output,
+                kind: .evidence,
+                format: .json
+            ),
+            relativeTo: root,
+            producer: producer
+        )
+    }
+
     // MARK: - Failure envelopes
 
-    @Test func missingDescriptorFileEmitsUnreadableFileEnvelope() throws {
+    @Test func missingDescriptorFileEmitsUnreadableFileEnvelope() async throws {
         let directory = try makeTemporaryDirectory()
         let requirementPath = try write(
             requirementJSON(),
@@ -439,7 +564,7 @@ struct ToolQualificationCLITests {
         )
         let missingPath = directory.appendingPathComponent("does-not-exist.json").path
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", missingPath,
             "--requirement", requirementPath,
@@ -452,7 +577,7 @@ struct ToolQualificationCLITests {
         #expect(diagnostic.message.contains(missingPath))
     }
 
-    @Test func invalidJSONEmitsInvalidJSONEnvelope() throws {
+    @Test func invalidJSONEmitsInvalidJSONEnvelope() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
             "this is not json",
@@ -465,7 +590,7 @@ struct ToolQualificationCLITests {
             in: directory
         )
 
-        let result = ToolQualificationCLI.invoke(arguments: [
+        let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
@@ -478,24 +603,24 @@ struct ToolQualificationCLITests {
         #expect(diagnostic.message.contains(descriptorPath))
     }
 
-    @Test func invalidArgumentsEmitInvalidArgumentsEnvelope() throws {
-        let unknownFlag = ToolQualificationCLI.invoke(arguments: ["evaluate", "--bogus"])
+    @Test func invalidArgumentsEmitInvalidArgumentsEnvelope() async throws {
+        let unknownFlag = await ToolQualificationCLI.invoke(arguments: ["evaluate", "--bogus"])
         #expect(unknownFlag.exitCode == 1)
         let unknownFlagDiagnostic = try decodeDiagnostic(from: unknownFlag)
         #expect(unknownFlagDiagnostic.code == "toolqualification.cli.invalid-arguments")
 
-        let missingRequired = ToolQualificationCLI.invoke(arguments: ["evaluate"])
+        let missingRequired = await ToolQualificationCLI.invoke(arguments: ["evaluate"])
         #expect(missingRequired.exitCode == 1)
         let missingRequiredDiagnostic = try decodeDiagnostic(from: missingRequired)
         #expect(missingRequiredDiagnostic.code == "toolqualification.cli.invalid-arguments")
         #expect(missingRequiredDiagnostic.message.contains("--descriptor"))
 
-        let noCommand = ToolQualificationCLI.invoke(arguments: [])
+        let noCommand = await ToolQualificationCLI.invoke(arguments: [])
         #expect(noCommand.exitCode == 1)
         let noCommandDiagnostic = try decodeDiagnostic(from: noCommand)
         #expect(noCommandDiagnostic.code == "toolqualification.cli.invalid-arguments")
 
-        let unknownCommand = ToolQualificationCLI.invoke(arguments: ["frobnicate"])
+        let unknownCommand = await ToolQualificationCLI.invoke(arguments: ["frobnicate"])
         #expect(unknownCommand.exitCode == 1)
         let unknownCommandDiagnostic = try decodeDiagnostic(from: unknownCommand)
         #expect(unknownCommandDiagnostic.code == "toolqualification.cli.invalid-arguments")
@@ -503,27 +628,27 @@ struct ToolQualificationCLITests {
 
     // MARK: - Help
 
-    @Test func helpTextListsCommandsAndExitCodes() {
-        let general = ToolQualificationCLI.invoke(arguments: ["--help"])
+    @Test func helpTextListsCommandsAndExitCodes() async {
+        let general = await ToolQualificationCLI.invoke(arguments: ["--help"])
         #expect(general.exitCode == 0)
         #expect(general.standardError.isEmpty)
         #expect(general.standardOutput.contains("evaluate"))
         #expect(general.standardOutput.contains("evaluate-registry"))
         #expect(general.standardOutput.contains("EXIT CODES"))
 
-        let evaluate = ToolQualificationCLI.invoke(arguments: ["evaluate", "--help"])
+        let evaluate = await ToolQualificationCLI.invoke(arguments: ["evaluate", "--help"])
         #expect(evaluate.exitCode == 0)
         #expect(evaluate.standardOutput.contains("--descriptor"))
         #expect(evaluate.standardOutput.contains("--requirement"))
         #expect(evaluate.standardOutput.contains("--health"))
 
-        let registry = ToolQualificationCLI.invoke(arguments: ["evaluate-registry", "--help"])
+        let registry = await ToolQualificationCLI.invoke(arguments: ["evaluate-registry", "--help"])
         #expect(registry.exitCode == 0)
         #expect(registry.standardOutput.contains("--descriptors"))
         #expect(registry.standardOutput.contains("--health-results"))
         #expect(registry.standardOutput.contains("selectedToolID"))
 
-        let process = ToolQualificationCLI.invoke(arguments: ["validate-process-evidence", "--help"])
+        let process = await ToolQualificationCLI.invoke(arguments: ["validate-process-evidence", "--help"])
         #expect(process.exitCode == 0)
         #expect(process.standardOutput.contains("--require-pdk"))
         #expect(process.standardOutput.contains("--at"))

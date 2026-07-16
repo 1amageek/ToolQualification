@@ -74,3 +74,11 @@ independence requirements. It does not launch tools or create qualification
 evidence that was not supplied by the caller. CLI commands expose
 domain-specific, typed records and diagnostics; they are not a persistence
 contract for another package.
+
+## Production evidence invariant
+
+`productionEligible` is derived from a complete process record, never from the
+descriptor level. The record retains the exact tool and oracle binaries, PDK and
+deck scope, corpus/oracle/health/human-approval artifacts, and qualified input
+and output artifacts. Every reference carries SHA-256 and byte count. Domain
+packages and Xcircuite re-verify the referenced bytes before accepting it.

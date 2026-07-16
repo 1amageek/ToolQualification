@@ -1,14 +1,22 @@
 import Foundation
+import CircuiteFoundation
 
 public struct ToolTrustEvaluator: Sendable {
-    public init() {}
+    private let processEvidenceValidator: any ToolProcessQualificationEvidenceValidating
+
+    public init(
+        processEvidenceValidator: any ToolProcessQualificationEvidenceValidating = ToolProcessQualificationEvidenceValidator()
+    ) {
+        self.processEvidenceValidator = processEvidenceValidator
+    }
 
     public func evaluate(
         descriptor: ToolDescriptor,
         requirement: ToolTrustRequirement,
         health: ToolHealthCheckResult?,
+        artifactReader: (any ToolQualificationArtifactReading)? = nil,
         evaluatedAt: Date = Date()
-    ) -> ToolTrustDecision {
+    ) async -> ToolTrustDecision {
         var diagnostics: [ToolDiagnostic] = []
 
         if descriptor.kind != requirement.kind {
@@ -150,34 +158,107 @@ public struct ToolTrustEvaluator: Sendable {
             ))
         }
 
-        let unqualifiedEvidence = requiredQualifiedEvidenceKinds.filter { kind in
-            guard let candidates = evidenceByKind[kind], !candidates.isEmpty else {
-                return false
-            }
+        var unqualifiedEvidence = Set<ToolEvidenceKind>()
+        for kind in requiredQualifiedEvidenceKinds {
+            guard let candidates = evidenceByKind[kind], !candidates.isEmpty else { continue }
             let freshCandidates = freshEvidence(
                 in: candidates,
                 maximumAgeSeconds: maximumEvidenceAgeSeconds,
                 evaluatedAt: evaluatedAt
             )
-            guard !freshCandidates.isEmpty else {
-                return false
+            guard !freshCandidates.isEmpty, let artifactReader else {
+                unqualifiedEvidence.insert(kind)
+                continue
             }
-            return !freshCandidates.contains {
-                $0.hasPassingQualificationSupport(
+            var hasPassingResult = false
+            for evidence in freshCandidates where !hasPassingResult {
+                if let failure = await evidenceFailure(
+                    evidence,
+                    toolID: descriptor.toolID,
                     requiredScope: requirement.qualificationScope,
-                    requireIndependentQualificationEvidence: requirement.requireIndependentQualificationEvidence
-                )
+                    requireIndependentOracle: requirement.requireIndependentQualificationEvidence,
+                    reading: artifactReader
+                ) {
+                    diagnostics.append(failure)
+                } else {
+                    hasPassingResult = true
+                }
             }
+            if !hasPassingResult { unqualifiedEvidence.insert(kind) }
         }
         if !unqualifiedEvidence.isEmpty {
             diagnostics.append(ToolDiagnostic(
                 severity: .error,
                 code: "UNQUALIFIED_REQUIRED_EVIDENCE",
-                message: "Tool evidence is present but does not include a passing qualification summary: \(unqualifiedEvidence.map(\.rawValue).sorted().joined(separator: ", "))."
+                message: "Tool evidence is present but its retained raw result does not derive a passing qualification: \(unqualifiedEvidence.map(\.rawValue).sorted().joined(separator: ", "))."
             ))
         }
 
-        return ToolTrustDecision(
+        if descriptor.trustProfile.level == .productionEligible
+            || requirement.minimumLevel == .productionEligible {
+            guard let processQualification = descriptor.trustProfile.processQualification else {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_QUALIFICATION_REQUIRED",
+                    message: "Production eligibility requires a retained process qualification record."
+                ))
+                return decision(descriptor: descriptor, diagnostics: diagnostics)
+            }
+            if processQualification.toolID != descriptor.toolID
+                || processQualification.scope.implementationID != descriptor.toolID
+                || processQualification.scope.toolVersion != descriptor.version {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_TOOL_IDENTITY_MISMATCH",
+                    message: "Process qualification must bind the exact tool identifier and version."
+                ))
+            }
+            if let requiredScope = requirement.qualificationScope,
+               processQualification.scope != requiredScope {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_SCOPE_MISMATCH",
+                    message: "Process qualification scope does not match the requested binary, process, PDK, deck, and oracle scope."
+                ))
+            }
+            if !processQualification.isQualified(at: evaluatedAt, requirePDKScope: true) {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_QUALIFICATION_INVALID",
+                    message: "Process qualification is incomplete, expired, lacks independent oracle scope, or lacks retained input/output artifacts."
+                ))
+            }
+            if let artifactReader {
+                do {
+                    try await processEvidenceValidator.validate(
+                        processQualification,
+                        reading: artifactReader,
+                        at: evaluatedAt
+                    )
+                } catch {
+                    diagnostics.append(ToolDiagnostic(
+                        severity: .error,
+                        code: "PRODUCTION_QUALIFICATION_DERIVATION_FAILED",
+                        message: "Production qualification artifacts failed integrity verification or could not reproduce the retained corpus, oracle, and health results: \(error.localizedDescription)"
+                    ))
+                }
+            } else {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_ARTIFACT_READER_REQUIRED",
+                    message: "Production eligibility requires a verified qualification artifact reader."
+                ))
+            }
+        }
+
+        return decision(descriptor: descriptor, diagnostics: diagnostics)
+    }
+
+    private func decision(
+        descriptor: ToolDescriptor,
+        diagnostics: [ToolDiagnostic]
+    ) -> ToolTrustDecision {
+        ToolTrustDecision(
             toolID: descriptor.toolID,
             status: diagnostics.contains { $0.severity == .error } ? .rejected : .eligible,
             diagnostics: diagnostics + descriptor.trustProfile.knownLimitations.map {
@@ -232,6 +313,108 @@ public struct ToolTrustEvaluator: Sendable {
         }
     }
 
+    private func evidenceFailure(
+        _ evidence: ToolEvidence,
+        toolID: String,
+        requiredScope: ToolQualificationScope?,
+        requireIndependentOracle: Bool,
+        reading artifacts: any ToolQualificationArtifactReading
+    ) async -> ToolDiagnostic? {
+        guard let artifact = evidence.artifact else {
+            return evidenceDiagnostic(
+                evidence,
+                code: "QUALIFICATION_EVIDENCE_ARTIFACT_MISSING",
+                detail: "does not retain an artifact reference"
+            )
+        }
+        let data: Data
+        do {
+            data = try await artifacts.verifiedData(for: artifact)
+        } catch {
+            return evidenceDiagnostic(
+                evidence,
+                code: "QUALIFICATION_EVIDENCE_INTEGRITY_FAILED",
+                detail: error.localizedDescription
+            )
+        }
+        do {
+            switch evidence.kind {
+            case .corpus:
+                let result = try ToolCorpusQualificationResult.decodeCanonical(from: data)
+                guard result.toolID == toolID,
+                      result.issuer.kind == .engine,
+                      artifact.producer == result.issuer else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "corpus result identity or issuer does not match")
+                }
+                guard result.checkedAt == evidence.checkedAt else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_TIME_MISMATCH", detail: "corpus checkedAt does not match")
+                }
+                guard requiredScope.map({ result.scope == $0 }) ?? true,
+                      !requireIndependentOracle || result.scope.isCompleteForProduction else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_SCOPE_MISMATCH", detail: "corpus scope does not match")
+                }
+                guard result.isPassing else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "corpus findings do not derive a passing result")
+                }
+            case .oracle:
+                let result = try ToolOracleQualificationResult.decodeCanonical(from: data)
+                guard result.primaryToolID == toolID,
+                      result.issuer.kind == .engine,
+                      artifact.producer == result.issuer else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "oracle result identity or issuer does not match")
+                }
+                guard result.checkedAt == evidence.checkedAt else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_TIME_MISMATCH", detail: "oracle checkedAt does not match")
+                }
+                guard requiredScope.map({ result.scope == $0 }) ?? true,
+                      !requireIndependentOracle || result.scope.isCompleteForProduction else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_SCOPE_MISMATCH", detail: "oracle scope does not match")
+                }
+                guard result.isPassing else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "oracle findings do not derive passing agreement")
+                }
+            case .healthCheck:
+                let result = try ToolHealthQualificationResult.decodeCanonical(from: data)
+                guard result.toolID == toolID,
+                      result.issuer.kind == .engine,
+                      artifact.producer == result.issuer else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "health result identity or issuer does not match")
+                }
+                guard result.checkedAt == evidence.checkedAt else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_TIME_MISMATCH", detail: "health checkedAt does not match")
+                }
+                guard requiredScope.map({ result.scope == $0 }) ?? true,
+                      !requireIndependentOracle || result.scope.isCompleteForProduction else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_SCOPE_MISMATCH", detail: "health scope does not match")
+                }
+                guard result.isPassing else {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_HEALTH_FAILED", detail: "health diagnostics contain an error")
+                }
+            case .smoke:
+                return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_KIND_UNSUPPORTED", detail: "smoke evidence has no typed qualification result")
+            }
+            return nil
+        } catch {
+            return evidenceDiagnostic(
+                evidence,
+                code: "QUALIFICATION_EVIDENCE_NONCANONICAL",
+                detail: error.localizedDescription
+            )
+        }
+    }
+
+    private func evidenceDiagnostic(
+        _ evidence: ToolEvidence,
+        code: String,
+        detail: String
+    ) -> ToolDiagnostic {
+        ToolDiagnostic(
+            severity: .error,
+            code: code,
+            message: "Evidence \(evidence.evidenceID) (\(evidence.kind.rawValue)) \(detail)."
+        )
+    }
+
     private static func impliedQualifiedEvidenceKinds(
         for level: ToolQualificationLevel
     ) -> [ToolEvidenceKind] {
@@ -239,13 +422,13 @@ public struct ToolTrustEvaluator: Sendable {
         case .unknown:
             []
         case .smokeChecked:
-            [.smoke]
+            []
         case .corpusChecked:
             [.corpus]
         case .oracleChecked:
             [.corpus, .oracle]
         case .productionEligible:
-            [.corpus, .oracle, .productionApproval]
+            [.corpus, .oracle, .healthCheck]
         }
     }
 }

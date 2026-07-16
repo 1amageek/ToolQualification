@@ -51,7 +51,8 @@ no dependency on project, run, or workspace storage.
 | `ToolTrustEvaluator` / `ToolTrustDecision` | Eligible/rejected verdict from descriptor + requirement + health |
 | `ToolRegistry` | Registers descriptors, selects eligible candidates deterministically |
 | `ToolEnvironment` / `ToolAsset` | Executable paths, platform, required assets (PDK, rule decks) |
-| `ToolQualificationScope` / `ToolProcessQualificationEvidence` | Exact implementation, binary, algorithm, process, deck and optional PDK scope with freshness, independence, approval and qualified-model references |
+| `ToolQualificationScope` / `ToolOracleQualificationScope` | Exact tool version/binary, algorithm, process, deck, PDK and independent oracle binary scope |
+| `ToolProcessQualificationEvidence` | Complete retained corpus/oracle/health/approval evidence graph plus qualified input/output artifacts and validity window |
 | `ToolProcessQualificationEvidenceBuilder` | Promotes artifact-backed independent corpus, oracle, health and production-approval evidence into a qualified process record |
 | `ToolQualificationCLICore` / `toolqualification` | Testable CLI core + headless executable |
 
@@ -64,7 +65,8 @@ no dependency on project, run, or workspace storage.
   the descriptor trust profile or the latest health result.
 - `requiredQualifiedEvidenceKinds` is stronger: evidence of that kind must exist
   and at least one matching `ToolEvidence` must carry a
-  `ToolEvidenceQualificationSummary` with `qualified == true`.
+  `ToolEvidenceQualificationSummary` with `qualified == true` and a non-empty,
+  SHA-256-bound immutable artifact. Metrics or policy identifiers alone are not evidence.
 - `minimumLevel` and the descriptor's declared `trustProfile.level` both imply
   minimum qualified evidence. A tool cannot self-declare a higher level without
   evidence that supports that level.
@@ -77,6 +79,11 @@ no dependency on project, run, or workspace storage.
   the relevant aggregate metrics and failure codes into
   `ToolEvidenceQualificationSummary`. `ToolQualification` does not import DRC/LVS
   engine types.
+- `productionEligible` additionally requires a retained
+  `ToolProcessQualificationEvidence` whose tool ID/version/binary, process, PDK,
+  deck and independent oracle scope match exactly. Its corpus, oracle, health,
+  human approval, qualified input and qualified output artifact groups must all
+  be complete and fresh.
 
 | Level | Implied qualified evidence |
 |---|---|
@@ -84,7 +91,7 @@ no dependency on project, run, or workspace storage.
 | `smokeChecked` | `smoke` |
 | `corpusChecked` | `corpus` |
 | `oracleChecked` | `corpus`, `oracle` |
-| `productionEligible` | `corpus`, `oracle`, `productionApproval` |
+| `productionEligible` | `corpus`, `oracle`, `healthCheck` |
 
 ```mermaid
 flowchart LR
@@ -183,9 +190,9 @@ toolqualification validate-process-evidence \
   --pretty
 ```
 
-The JSON result includes the exact qualification scope and ISO-8601 timestamps.
-`ToolProcessQualificationEvidence` writes ISO-8601 dates and continues to read
-legacy Swift reference-date numeric timestamps for artifact compatibility.
+The JSON result includes the exact qualification scope, retained artifact graph,
+and qualification window. Schema version 2 is intentionally breaking and does
+not decode ID-only qualification records.
 
 ### build-process-evidence
 

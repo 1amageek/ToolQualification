@@ -5,5 +5,4 @@ public enum ToolEvidenceKind: String, Sendable, Hashable, Codable {
     case corpus
     case oracle
     case healthCheck
-    case productionApproval
 }
