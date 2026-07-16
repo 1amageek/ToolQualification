@@ -1,4 +1,4 @@
-@_exported import CircuiteFoundation
+import CircuiteFoundation
 import Foundation
 
 /// Inputs to a trust evaluation that must be reproducible by an engine or CLI.
