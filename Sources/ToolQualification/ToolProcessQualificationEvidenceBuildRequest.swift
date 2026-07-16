@@ -71,6 +71,13 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Expected process qualification build-request schema version \(Self.currentSchemaVersion)."
+            )
+        }
         qualificationID = try container.decode(String.self, forKey: .qualificationID)
         toolID = try container.decode(String.self, forKey: .toolID)
         scope = try container.decode(ToolQualificationScope.self, forKey: .scope)

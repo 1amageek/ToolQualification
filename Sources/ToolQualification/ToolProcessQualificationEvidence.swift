@@ -20,6 +20,24 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     public let qualifiedAt: Date?
     public let expiresAt: Date?
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case qualificationID
+        case toolID
+        case scope
+        case identityArtifacts
+        case status
+        case corpusEvidence
+        case oracleEvidence
+        case healthEvidence
+        case inputArtifacts
+        case outputArtifacts
+        case qualifiedModelIDs
+        case blockers
+        case qualifiedAt
+        case expiresAt
+    }
+
     init(
         qualificationID: String,
         toolID: String,
@@ -52,6 +70,35 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         self.blockers = Self.sortedUnique(blockers)
         self.qualifiedAt = qualifiedAt
         self.expiresAt = expiresAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Expected process qualification evidence schema version \(Self.currentSchemaVersion)."
+            )
+        }
+        self.init(
+            qualificationID: try container.decode(String.self, forKey: .qualificationID),
+            toolID: try container.decode(String.self, forKey: .toolID),
+            scope: try container.decode(ToolQualificationScope.self, forKey: .scope),
+            identityArtifacts: try container.decode(ToolProcessQualificationArtifacts.self, forKey: .identityArtifacts),
+            status: try container.decode(ToolProcessQualificationStatus.self, forKey: .status),
+            corpusEvidence: try container.decode([ToolEvidence].self, forKey: .corpusEvidence),
+            oracleEvidence: try container.decode([ToolEvidence].self, forKey: .oracleEvidence),
+            healthEvidence: try container.decode([ToolEvidence].self, forKey: .healthEvidence),
+            inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
+            outputArtifacts: try container.decode([ArtifactReference].self, forKey: .outputArtifacts),
+            qualifiedModelIDs: try container.decode([String].self, forKey: .qualifiedModelIDs),
+            blockers: try container.decode([String].self, forKey: .blockers),
+            qualifiedAt: try container.decodeIfPresent(Date.self, forKey: .qualifiedAt),
+            expiresAt: try container.decodeIfPresent(Date.self, forKey: .expiresAt),
+            schemaVersion: schemaVersion
+        )
     }
 
     public var corpusEvidenceIDs: [String] { corpusEvidence.map(\.evidenceID) }

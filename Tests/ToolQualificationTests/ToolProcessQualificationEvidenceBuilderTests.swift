@@ -98,6 +98,59 @@ struct ToolProcessQualificationEvidenceBuilderTests {
             )
         }
     }
+
+    @Test("persisted qualification contracts require their exact current schema")
+    func rejectsMissingAndUnsupportedSchemaVersions() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let request = fixture.request(now: now)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            request,
+            reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+            at: now
+        )
+
+        try expectCurrentSchema(
+            ToolCorpusQualificationResult.self,
+            data: Data(contentsOf: fixture.root.appending(path: fixture.corpus.path))
+        )
+        try expectCurrentSchema(
+            ToolOracleQualificationResult.self,
+            data: Data(contentsOf: fixture.root.appending(path: fixture.oracle.path))
+        )
+        try expectCurrentSchema(
+            ToolHealthQualificationResult.self,
+            data: Data(contentsOf: fixture.root.appending(path: fixture.health.path))
+        )
+        try expectCurrentSchema(
+            ToolProcessQualificationEvidenceBuildRequest.self,
+            data: JSONEncoder().encode(request)
+        )
+        try expectCurrentSchema(
+            ToolProcessQualificationEvidence.self,
+            data: JSONEncoder().encode(evidence)
+        )
+    }
+
+    private func expectCurrentSchema<Value: Decodable>(
+        _ type: Value.Type,
+        data: Data
+    ) throws {
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        object.removeValue(forKey: "schemaVersion")
+        let missing = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(type, from: missing)
+        }
+
+        object["schemaVersion"] = 9_999
+        let unsupported = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(type, from: unsupported)
+        }
+    }
 }
 
 private struct Fixture {

@@ -17,6 +17,21 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
     public let cases: [ToolOracleCaseComparison]
     public let checkedAt: Date
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case resultID
+        case qualificationID
+        case primaryToolID
+        case oracleToolID
+        case scope
+        case issuer
+        case inputArtifacts
+        case primaryOutputArtifacts
+        case oracleOutputArtifacts
+        case cases
+        case checkedAt
+    }
+
     public init(
         resultID: String,
         qualificationID: String,
@@ -43,6 +58,32 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
         self.oracleOutputArtifacts = oracleOutputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
         self.cases = cases.sorted { $0.caseID < $1.caseID }
         self.checkedAt = checkedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Expected oracle qualification schema version \(Self.currentSchemaVersion)."
+            )
+        }
+        self.init(
+            resultID: try container.decode(String.self, forKey: .resultID),
+            qualificationID: try container.decode(String.self, forKey: .qualificationID),
+            primaryToolID: try container.decode(String.self, forKey: .primaryToolID),
+            oracleToolID: try container.decode(String.self, forKey: .oracleToolID),
+            scope: try container.decode(ToolQualificationScope.self, forKey: .scope),
+            issuer: try container.decode(ProducerIdentity.self, forKey: .issuer),
+            inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
+            primaryOutputArtifacts: try container.decode([ArtifactReference].self, forKey: .primaryOutputArtifacts),
+            oracleOutputArtifacts: try container.decode([ArtifactReference].self, forKey: .oracleOutputArtifacts),
+            cases: try container.decode([ToolOracleCaseComparison].self, forKey: .cases),
+            checkedAt: try container.decode(Date.self, forKey: .checkedAt),
+            schemaVersion: schemaVersion
+        )
     }
 
     public var isStructurallyValid: Bool {

@@ -15,6 +15,19 @@ public struct ToolHealthQualificationResult: Sendable, Hashable, Codable {
     public let diagnostics: [ToolDiagnostic]
     public let checkedAt: Date
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case resultID
+        case qualificationID
+        case toolID
+        case scope
+        case issuer
+        case inputArtifacts
+        case outputArtifacts
+        case diagnostics
+        case checkedAt
+    }
+
     public init(
         resultID: String,
         qualificationID: String,
@@ -37,6 +50,30 @@ public struct ToolHealthQualificationResult: Sendable, Hashable, Codable {
         self.outputArtifacts = outputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
         self.diagnostics = diagnostics
         self.checkedAt = checkedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Expected health qualification schema version \(Self.currentSchemaVersion)."
+            )
+        }
+        self.init(
+            resultID: try container.decode(String.self, forKey: .resultID),
+            qualificationID: try container.decode(String.self, forKey: .qualificationID),
+            toolID: try container.decode(String.self, forKey: .toolID),
+            scope: try container.decode(ToolQualificationScope.self, forKey: .scope),
+            issuer: try container.decode(ProducerIdentity.self, forKey: .issuer),
+            inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
+            outputArtifacts: try container.decode([ArtifactReference].self, forKey: .outputArtifacts),
+            diagnostics: try container.decode([ToolDiagnostic].self, forKey: .diagnostics),
+            checkedAt: try container.decode(Date.self, forKey: .checkedAt),
+            schemaVersion: schemaVersion
+        )
     }
 
     public var isStructurallyValid: Bool {
