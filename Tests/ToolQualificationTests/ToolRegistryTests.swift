@@ -6,7 +6,7 @@ import ToolQualification
 @Suite("Tool registry")
 struct ToolRegistryTests {
     @Test func upsertReplacesDescriptorByToolID() throws {
-        var registry = ToolRegistry(descriptors: [
+        var registry = try ToolRegistry(descriptors: [
             makeDescriptor(toolID: "drc", level: .unknown),
         ])
 
@@ -25,7 +25,7 @@ struct ToolRegistryTests {
 
     @Test func deterministicTieBreakUsesToolID() async throws {
         let qualification = try SmokeQualificationFixture()
-        let registry = ToolRegistry(descriptors: [
+        let registry = try ToolRegistry(descriptors: [
             try await qualification.descriptor(toolID: "z-tool"),
             try await qualification.descriptor(toolID: "a-tool"),
         ])
@@ -45,7 +45,7 @@ struct ToolRegistryTests {
 
     @Test func selectPrefersTheMostQualifiedEligibleCandidate() async throws {
         let qualification = try SmokeQualificationFixture()
-        let registry = ToolRegistry(descriptors: [
+        let registry = try ToolRegistry(descriptors: [
             makeDescriptor(toolID: "unknown-tool", level: .unknown),
             try await qualification.descriptor(toolID: "smoke-tool"),
         ])
@@ -72,7 +72,7 @@ struct ToolRegistryTests {
 
     @Test func selectSkipsFailedHealthCandidates() async throws {
         let qualification = try SmokeQualificationFixture()
-        let registry = ToolRegistry(descriptors: [
+        let registry = try ToolRegistry(descriptors: [
             try await qualification.descriptor(toolID: "failed"),
             try await qualification.descriptor(toolID: "healthy"),
         ])
@@ -90,8 +90,8 @@ struct ToolRegistryTests {
         #expect(selected?.toolID == "healthy")
     }
 
-    @Test func registryFailsClosedWhenQualifiedEvidenceCannotBeRead() async {
-        let registry = ToolRegistry(descriptors: [
+    @Test func registryFailsClosedWhenQualifiedEvidenceCannotBeRead() async throws {
+        let registry = try ToolRegistry(descriptors: [
             makeDescriptor(
                 toolID: "corpus-tool",
                 level: .corpusChecked,
@@ -115,12 +115,36 @@ struct ToolRegistryTests {
         #expect(selected == nil)
     }
 
-    @Test func validatingInitializerRejectsDuplicateToolIDs() {
+    @Test func initializerRejectsDuplicateToolIDs() {
         #expect(throws: ToolQualificationError.self) {
-            try ToolRegistry(validating: [
+            try ToolRegistry(descriptors: [
                 makeDescriptor(toolID: "drc", level: .unknown),
                 makeDescriptor(toolID: "drc", level: .smokeChecked),
             ])
+        }
+    }
+
+    @Test func initializerRejectsInvalidToolID() {
+        #expect(throws: ToolQualificationError.invalidToolID("../drc")) {
+            try ToolRegistry(descriptors: [
+                makeDescriptor(toolID: "../drc", level: .unknown),
+            ])
+        }
+    }
+
+    @Test func decoderRejectsDescriptorKeyMismatch() throws {
+        let registry = try ToolRegistry(descriptors: [
+            makeDescriptor(toolID: "drc", level: .unknown),
+        ])
+        let encoded = try JSONEncoder().encode(registry)
+        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let descriptor = try #require((json["descriptors"] as? [String: Any])?["drc"])
+        let mismatched = try JSONSerialization.data(withJSONObject: [
+            "descriptors": ["other": descriptor],
+        ])
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(ToolRegistry.self, from: mismatched)
         }
     }
 

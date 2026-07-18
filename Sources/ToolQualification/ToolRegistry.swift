@@ -3,15 +3,15 @@ import Foundation
 public struct ToolRegistry: Sendable, Hashable, Codable {
     public private(set) var descriptors: [String: ToolDescriptor]
 
-    public init(descriptors: [ToolDescriptor] = []) {
-        do {
-            self = try ToolRegistry(validating: descriptors)
-        } catch {
-            preconditionFailure("Invalid tool registry descriptors: \(error)")
-        }
+    private enum CodingKeys: String, CodingKey {
+        case descriptors
     }
 
-    public init(validating descriptors: [ToolDescriptor]) throws {
+    public init() {
+        descriptors = [:]
+    }
+
+    public init(descriptors: [ToolDescriptor]) throws {
         var descriptorsByID: [String: ToolDescriptor] = [:]
         for descriptor in descriptors {
             try Self.validateToolID(descriptor.toolID)
@@ -21,6 +21,24 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
             descriptorsByID[descriptor.toolID] = descriptor
         }
         self.descriptors = descriptorsByID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decoded = try container.decode([String: ToolDescriptor].self, forKey: .descriptors)
+        guard decoded.allSatisfy({ $0.key == $0.value.toolID }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .descriptors,
+                in: container,
+                debugDescription: "Tool registry keys must match descriptor tool IDs."
+            )
+        }
+        try self.init(descriptors: Array(decoded.values))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(descriptors, forKey: .descriptors)
     }
 
     public func descriptor(toolID: String) -> ToolDescriptor? {
