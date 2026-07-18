@@ -5,7 +5,7 @@ Updated: 2026-07-14
 | Goal | Status | Evidence |
 |---|---|---|
 | Independent qualification package | Complete | Descriptor, evidence, registry, evaluator, process evidence, and CLI targets build independently. |
-| CircuiteFoundation dependency | Complete | `Package.swift` depends on `../CircuiteFoundation`; module re-exports shared types. |
+| CircuiteFoundation dependency | Complete | `Package.swift` depends on `../CircuiteFoundation`; public APIs use shared types directly without re-exporting the module. |
 | Foundation qualification request boundary | Complete | `ToolQualificationRequest`. |
 | Foundation qualification result boundary | Complete | `ToolQualificationResult` implements artifact, diagnostic, and evidence protocols. |
 | Foundation engine protocol | Complete | `ToolQualificationEngine`. |
@@ -20,4 +20,5 @@ Updated: 2026-07-14
 
 The engine composes the synchronous trust evaluator behind
 `ToolQualificationEngine` and persists no fabricated evidence. Process
-execution and domain qualification remain outside this package.
+execution and domain assessment remain outside this package; qualification
+record issuance and validation remain inside it.

@@ -8,13 +8,15 @@ evidence requirements, health-check interpretation, deterministic registry
 selection, trust decisions, process-qualification evidence records, and the
 headless CLI.
 
-It never launches a tool. Domain engines produce native qualification reports;
-this package evaluates the declared evidence and applies fail-closed trust
-gates.
+It never launches a tool. Domain engines produce domain assessments,
+observations, artifacts, and provenance. This package validates those inputs,
+builds qualification evidence, issues qualification records, and applies
+fail-closed trust gates.
 
 ```mermaid
 flowchart TD
-    Domain["DRC / LVS / PEX / simulation engine"] --> Evidence["ToolEvidence\nqualification summary"]
+    Domain["DRC / LVS / PEX / simulation engine"] --> Observation["Domain assessment\nObservationRecord"]
+    Observation --> Evidence["ToolEvidence\nToolQualification-owned"]
     Descriptor["ToolDescriptor"] --> Request["ToolQualificationRequest"]
     Requirement["ToolTrustRequirement"] --> Request
     Health["ToolHealthCheckResult"] --> Request
@@ -27,8 +29,9 @@ flowchart TD
 
 ## CircuiteFoundation integration
 
-The package depends on and re-exports `CircuiteFoundation` for the shared
-artifact, provenance, evidence, and diagnostic boundary:
+The package depends on `CircuiteFoundation` for the shared artifact,
+provenance, evidence, and diagnostic boundary. Clients import
+`CircuiteFoundation` explicitly when they use those shared types:
 
 - `ToolQualificationRequest` captures descriptor, requirement, health, input
   artifact references, and evaluation time.
