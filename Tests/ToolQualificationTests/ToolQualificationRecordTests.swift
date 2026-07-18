@@ -27,6 +27,41 @@ struct ToolQualificationRecordTests {
         }
     }
 
+    @Test func issuerRejectsDuplicateCapabilityIdentifiers() async throws {
+        let fixture = try RecordFixture()
+        var descriptor = fixture.descriptor
+        descriptor.capabilities = [
+            ToolCapability(operationID: "run"),
+            ToolCapability(operationID: "run"),
+        ]
+
+        await #expect(throws: ToolQualificationRecordError.invalidStructure) {
+            _ = try await DefaultToolQualificationRecordIssuer().issue(
+                recordID: "duplicate-capabilities",
+                descriptor: descriptor,
+                health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed),
+                issuer: fixture.issuer,
+                reading: fixture.reader,
+                issuedAt: fixture.issuedAt
+            )
+        }
+    }
+
+    @Test func issuerRejectsBlankRecordIdentifier() async throws {
+        let fixture = try RecordFixture()
+
+        await #expect(throws: ToolQualificationRecordError.invalidStructure) {
+            _ = try await DefaultToolQualificationRecordIssuer().issue(
+                recordID: "  ",
+                descriptor: fixture.descriptor,
+                health: ToolHealthCheckResult(toolID: fixture.descriptor.toolID, status: .passed),
+                issuer: fixture.issuer,
+                reading: fixture.reader,
+                issuedAt: fixture.issuedAt
+            )
+        }
+    }
+
     @Test func validatorAcceptsIssuerBoundCanonicalRecord() async throws {
         let fixture = try RecordFixture()
         let record = try await fixture.issue()

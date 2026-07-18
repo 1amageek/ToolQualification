@@ -74,6 +74,12 @@ public enum ToolQualificationCLI {
                 arguments: commandArguments
             )
             return try await ToolQualificationBuildProcessEvidenceCommand().execute(options: options)
+        case "issue-record":
+            if commandArguments.contains("--help") {
+                return helpResult(issueRecordHelp)
+            }
+            let options = try ToolQualificationIssueRecordCommand.Options(arguments: commandArguments)
+            return try await ToolQualificationIssueRecordCommand().execute(options: options)
         default:
             throw ToolQualificationCLIError.invalidArguments(
                 "Unknown command: \(command). Run 'toolqualification --help' for usage."
@@ -113,7 +119,8 @@ public enum ToolQualificationCLI {
       toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path>] [--pretty]
       toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path>] [--pretty]
       toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
-      toolqualification build-process-evidence --input <path.json> --output <path.json> [--at <unix-seconds>] [--pretty]
+      toolqualification build-process-evidence --input <path.json> --workspace-root <path> --output <path.json> [--at <unix-seconds>] [--pretty]
+      toolqualification issue-record --input <request.json> --workspace-root <path> --record-path <relative-path> --reference-output <path.json> [--pretty]
       toolqualification <command> --help
 
     COMMANDS:
@@ -125,12 +132,37 @@ public enum ToolQualificationCLI {
                          at a specific evaluation time and optional PDK scope.
       build-process-evidence  Build a qualified process record only when all
                          independent corpus, oracle, health and approval evidence is present.
+      issue-record       Issue a runtime qualification record after independently
+                         verifying its retained evidence and health result.
 
     EXIT CODES:
       0  eligible (evaluate) / at least one eligible tool (evaluate-registry)
       2  evaluated but not eligible / no eligible tool
       1  invalid arguments, unreadable file, or invalid JSON
          (single JSON diagnostic envelope {"code","message"} on stderr)
+    """
+
+    static let issueRecordHelp = """
+    OVERVIEW: Issue a ToolQualificationRecord from a typed issuance request.
+
+    The command independently re-evaluates every declared capability and verifies
+    retained qualification artifacts before writing the canonical record and its
+    ArtifactReference. Engine observation exports are not accepted as records.
+
+    USAGE:
+      toolqualification issue-record --input <request.json> --workspace-root <path> --record-path <workspace-relative-path> --reference-output <path.json> [--pretty]
+
+    OPTIONS:
+      --input <request.json>       ToolQualificationRecordIssuanceRequest JSON (required)
+      --workspace-root <path>      Root used to resolve and verify retained artifacts (required)
+      --record-path <path>         Workspace-relative canonical record path (required)
+      --reference-output <path>    ArtifactReference JSON output path (required)
+      --pretty                     Pretty-print the reference and stdout envelope
+
+    EXIT CODES:
+      0  record and reference were written
+      2  trust evaluation rejected issuance
+      1  invalid arguments, unreadable input, invalid JSON or unwritable output
     """
 
     static let evaluateHelp = """
@@ -210,7 +242,7 @@ public enum ToolQualificationCLI {
     OPTIONS:
       --input <build-request.json>  Build request containing scoped corpus,
                                     oracle, health and production-approval evidence (required)
-              --workspace-root <path> Workspace root used to verify every retained artifact (required)
+      --workspace-root <path> Workspace root used to verify every retained artifact (required)
       --output <evidence.json>      Qualified process record output path (required)
       --at <unix-seconds>           Require the validity window to contain this time; defaults to now
       --pretty                      Pretty-print the stdout JSON envelope and output record

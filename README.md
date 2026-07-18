@@ -213,6 +213,7 @@ and a valid qualification window:
 ```bash
 toolqualification build-process-evidence \
   --input process-qualification-build-request.json \
+  --workspace-root /path/to/project \
   --output process-qualification-evidence.json \
   --pretty
 ```
@@ -222,6 +223,27 @@ artifact IDs, project-relative paths, SHA-256 digests, byte counts, scope and
 validity. It exits 2 without writing an output record when any promotion
 condition is missing. This command creates a reproducible local record from
 already-produced evidence; it does not claim foundry qualification by itself.
+
+### issue-record
+
+Issue the runtime qualification record consumed by Xcircuite only after
+ToolQualification has independently re-evaluated every declared capability,
+health result, and retained qualification artifact:
+
+```bash
+toolqualification issue-record \
+  --input qualification-record-issuance-request.json \
+  --workspace-root /path/to/project \
+  --record-path qualification/runtime-record.json \
+  --reference-output runtime-record-reference.json \
+  --pretty
+```
+
+The input is a typed `ToolQualificationRecordIssuanceRequest`. The command
+writes a canonical `ToolQualificationRecord` inside the workspace and a
+digest-bound `ArtifactReference` suitable for Xcircuite's
+`attach-qualification-record`. Raw engine observation exports are deliberately
+not accepted as runtime qualification records.
 
 ### Exit codes and diagnostics
 

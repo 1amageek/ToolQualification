@@ -16,8 +16,9 @@ public struct DefaultToolQualificationRecordIssuer: ToolQualificationRecordIssui
         reading artifacts: any ToolQualificationArtifactReading,
         issuedAt: Date
     ) async throws -> ToolQualificationRecord {
-        guard health.toolID == descriptor.toolID,
-              !descriptor.capabilities.isEmpty else {
+        guard !recordID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              descriptor.isStructurallyValid,
+              health.toolID == descriptor.toolID else {
             throw ToolQualificationRecordError.invalidStructure
         }
 

@@ -34,8 +34,7 @@ public struct ToolQualificationRecord: Sendable, Hashable, Codable {
         schemaVersion == Self.currentSchemaVersion
             && !recordID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && health.toolID == descriptor.toolID
-            && !descriptor.toolID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !descriptor.capabilities.isEmpty
+            && descriptor.isStructurallyValid
             && issuanceDecisions.count == descriptor.capabilities.count
             && Set(issuanceDecisions.map(\.operationID)).count == issuanceDecisions.count
             && Set(issuanceDecisions.map(\.operationID)) == Set(descriptor.capabilities.map(\.operationID))
