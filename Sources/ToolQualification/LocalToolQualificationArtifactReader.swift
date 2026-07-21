@@ -30,9 +30,26 @@ public actor LocalToolQualificationArtifactReader: ToolQualificationArtifactRead
             )
         }
         do {
-            return try await Task.detached(priority: nil) {
+            let data = try await Task.detached(priority: nil) {
                 try Data(contentsOf: url, options: [.mappedIfSafe])
             }.value
+            guard UInt64(data.count) == reference.byteCount else {
+                throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+                    "byte count changed while reading \(reference.id.rawValue)"
+                )
+            }
+            let digest = try SHA256ContentDigester().digest(
+                data: data,
+                using: reference.digest.algorithm
+            )
+            guard digest == reference.digest else {
+                throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+                    "digest changed while reading \(reference.id.rawValue)"
+                )
+            }
+            return data
+        } catch let error as ToolProcessQualificationEvidenceBuildError {
+            throw error
         } catch {
             throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
                 error.localizedDescription

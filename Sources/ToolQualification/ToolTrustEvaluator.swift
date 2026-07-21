@@ -19,6 +19,23 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
     ) async -> ToolTrustDecision {
         var diagnostics: [ToolDiagnostic] = []
 
+        guard descriptor.isStructurallyValid else {
+            diagnostics.append(ToolDiagnostic(
+                severity: .error,
+                code: "TOOL_DESCRIPTOR_STRUCTURALLY_INVALID",
+                message: "Tool descriptor is structurally invalid and cannot participate in trust evaluation."
+            ))
+            return decision(descriptor: descriptor, diagnostics: diagnostics)
+        }
+        guard evaluatedAt.timeIntervalSinceReferenceDate.isFinite else {
+            diagnostics.append(ToolDiagnostic(
+                severity: .error,
+                code: "INVALID_EVALUATION_TIMESTAMP",
+                message: "Tool trust evaluation requires a finite timestamp."
+            ))
+            return decision(descriptor: descriptor, diagnostics: diagnostics)
+        }
+
         if descriptor.kind != requirement.kind {
             diagnostics.append(ToolDiagnostic(
                 severity: .error,
@@ -72,6 +89,13 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 severity: .error,
                 code: "HEALTH_CHECK_TOOL_ID_MISMATCH",
                 message: "Tool health check result belongs to \(health.toolID), not \(descriptor.toolID)."
+            ))
+            applicableHealth = nil
+        } else if let health, !health.isStructurallyValid {
+            diagnostics.append(ToolDiagnostic(
+                severity: .error,
+                code: "HEALTH_CHECK_STRUCTURALLY_INVALID",
+                message: "Tool health check result is structurally invalid or its passed status conflicts with an error diagnostic."
             ))
             applicableHealth = nil
         } else {
@@ -196,6 +220,20 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
 
         if descriptor.trustProfile.level == .productionEligible
             || requirement.minimumLevel == .productionEligible {
+            if requirement.qualificationScope == nil {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_SCOPE_REQUIRED",
+                    message: "Production eligibility requires an exact binary, process, PDK, deck, and oracle qualification scope."
+                ))
+            }
+            if !requirement.requireIndependentQualificationEvidence {
+                diagnostics.append(ToolDiagnostic(
+                    severity: .error,
+                    code: "PRODUCTION_INDEPENDENT_QUALIFICATION_REQUIRED",
+                    message: "Production eligibility cannot be requested without independent qualification evidence."
+                ))
+            }
             guard let processQualification = descriptor.trustProfile.processQualification else {
                 diagnostics.append(ToolDiagnostic(
                     severity: .error,
@@ -299,17 +337,23 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
         maximumAgeSeconds: TimeInterval?,
         evaluatedAt: Date
     ) -> [ToolEvidence] {
-        guard let maximumAgeSeconds,
-              maximumAgeSeconds > 0,
-              maximumAgeSeconds.isFinite else {
-            return candidates
-        }
         return candidates.filter { evidence in
-            guard let checkedAt = evidence.checkedAt else {
-                return false
+            if let checkedAt = evidence.checkedAt {
+                guard checkedAt.timeIntervalSinceReferenceDate.isFinite else {
+                    return false
+                }
+                let age = evaluatedAt.timeIntervalSince(checkedAt)
+                guard age >= 0 else {
+                    return false
+                }
+                guard let maximumAgeSeconds else {
+                    return true
+                }
+                return maximumAgeSeconds > 0
+                    && maximumAgeSeconds.isFinite
+                    && age <= maximumAgeSeconds
             }
-            let age = evaluatedAt.timeIntervalSince(checkedAt)
-            return age >= 0 && age <= maximumAgeSeconds
+            return maximumAgeSeconds == nil
         }
     }
 
@@ -341,7 +385,8 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
             switch evidence.kind {
             case .smoke:
                 let result = try ToolSmokeQualificationResult.decodeCanonical(from: data)
-                guard result.toolID == toolID,
+                guard result.resultID == evidence.evidenceID,
+                      result.toolID == toolID,
                       result.issuer.kind == .engine,
                       artifact.producer == result.issuer else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "smoke result identity or issuer does not match")
@@ -352,9 +397,17 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_SMOKE_FAILED", detail: "smoke diagnostics contain an error")
                 }
+                if let failure = await boundArtifactFailure(
+                    result.inputArtifacts + result.outputArtifacts,
+                    evidence: evidence,
+                    reading: artifacts
+                ) {
+                    return failure
+                }
             case .corpus:
                 let result = try ToolCorpusQualificationResult.decodeCanonical(from: data)
-                guard result.toolID == toolID,
+                guard result.resultID == evidence.evidenceID,
+                      result.toolID == toolID,
                       result.issuer.kind == .engine,
                       artifact.producer == result.issuer else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "corpus result identity or issuer does not match")
@@ -369,9 +422,17 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "corpus findings do not derive a passing result")
                 }
+                if let failure = await boundArtifactFailure(
+                    result.inputArtifacts + result.outputArtifacts,
+                    evidence: evidence,
+                    reading: artifacts
+                ) {
+                    return failure
+                }
             case .oracle:
                 let result = try ToolOracleQualificationResult.decodeCanonical(from: data)
-                guard result.primaryToolID == toolID,
+                guard result.resultID == evidence.evidenceID,
+                      result.primaryToolID == toolID,
                       result.issuer.kind == .engine,
                       artifact.producer == result.issuer else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "oracle result identity or issuer does not match")
@@ -386,9 +447,19 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "oracle findings do not derive passing agreement")
                 }
+                if let failure = await boundArtifactFailure(
+                    result.inputArtifacts
+                        + result.primaryOutputArtifacts
+                        + result.oracleOutputArtifacts,
+                    evidence: evidence,
+                    reading: artifacts
+                ) {
+                    return failure
+                }
             case .healthCheck:
                 let result = try ToolHealthQualificationResult.decodeCanonical(from: data)
-                guard result.toolID == toolID,
+                guard result.resultID == evidence.evidenceID,
+                      result.toolID == toolID,
                       result.issuer.kind == .engine,
                       artifact.producer == result.issuer else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "health result identity or issuer does not match")
@@ -402,6 +473,13 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 }
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_HEALTH_FAILED", detail: "health diagnostics contain an error")
+                }
+                if let failure = await boundArtifactFailure(
+                    result.inputArtifacts + result.outputArtifacts,
+                    evidence: evidence,
+                    reading: artifacts
+                ) {
+                    return failure
                 }
             }
             return nil
@@ -424,6 +502,32 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
             code: code,
             message: "Evidence \(evidence.evidenceID) (\(evidence.kind.rawValue)) \(detail)."
         )
+    }
+
+    private func boundArtifactFailure(
+        _ references: [ArtifactReference],
+        evidence: ToolEvidence,
+        reading artifacts: any ToolQualificationArtifactReading
+    ) async -> ToolDiagnostic? {
+        for reference in references {
+            guard ToolQualificationArtifactValidation.isVerifiable(reference) else {
+                return evidenceDiagnostic(
+                    evidence,
+                    code: "QUALIFICATION_BOUND_ARTIFACT_INVALID",
+                    detail: "references an invalid retained input or output artifact"
+                )
+            }
+            do {
+                _ = try await artifacts.verifiedData(for: reference)
+            } catch {
+                return evidenceDiagnostic(
+                    evidence,
+                    code: "QUALIFICATION_BOUND_ARTIFACT_INTEGRITY_FAILED",
+                    detail: "could not verify retained artifact \(reference.id.rawValue): \(error.localizedDescription)"
+                )
+            }
+        }
+        return nil
     }
 
     private static func impliedQualifiedEvidenceKinds(

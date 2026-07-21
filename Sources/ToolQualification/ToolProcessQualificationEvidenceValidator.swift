@@ -33,6 +33,7 @@ public struct ToolProcessQualificationEvidenceValidator: ToolProcessQualificatio
             inputArtifacts: evidence.inputArtifacts,
             outputArtifacts: evidence.outputArtifacts,
             qualifiedModelIDs: evidence.qualifiedModelIDs,
+            requiredOperatingCornerIDs: evidence.qualifiedOperatingCornerIDs,
             requirePDKScope: true,
             qualifiedAt: qualifiedAt,
             expiresAt: expiresAt

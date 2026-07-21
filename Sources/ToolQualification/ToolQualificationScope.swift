@@ -42,7 +42,7 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
             toolVersion,
             algorithmVersion,
             processProfileID,
-        ].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        ].allSatisfy(Self.isToken)
             && Self.isSHA256(binaryDigest)
             && Self.isSHA256(processProfileDigest)
             && Self.isSHA256(deckDigest)
@@ -55,7 +55,7 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
         guard let pdkID, let pdkDigest else {
             return false
         }
-        return !pdkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Self.isToken(pdkID)
             && Self.isSHA256(pdkDigest)
     }
 
@@ -73,5 +73,13 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
                 || (byte >= 65 && byte <= 70)
                 || (byte >= 97 && byte <= 102)
         }
+    }
+
+    private static func isToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines) == value
+            && !value.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
     }
 }

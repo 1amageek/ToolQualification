@@ -26,6 +26,36 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
     }
 
+    @Test("builder requires corpus and independent oracle coverage for every requested corner")
+    func requiresCompleteOperatingCornerCoverage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let qualified = fixture.request(
+            now: now,
+            requiredOperatingCornerIDs: ["tt", "ss", "ff"]
+        )
+
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            qualified,
+            reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+            at: now
+        )
+        #expect(evidence.qualifiedOperatingCornerIDs == ["ff", "ss", "tt"])
+
+        let missing = fixture.request(
+            now: now,
+            requiredOperatingCornerIDs: ["tt", "ss", "ff", "sf"]
+        )
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                missing,
+                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                at: now
+            )
+        }
+    }
+
     @Test("builder derives pass status and rejects a failed canonical corpus result")
     func rejectsFailedCorpusResult() async throws {
         let fixture = try Fixture()
@@ -82,6 +112,23 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         }
     }
 
+    @Test("builder rejects nonfinite qualification timestamps")
+    func rejectsNonfiniteQualificationTimestamp() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        var request = fixture.request(now: now)
+        request.expiresAt = Date(timeIntervalSinceReferenceDate: .infinity)
+
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                request,
+                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                at: now
+            )
+        }
+    }
+
     @Test("builder rejects a qualification graph without an independent oracle result")
     func rejectsMissingOracleResult() async throws {
         let fixture = try Fixture()
@@ -97,6 +144,65 @@ struct ToolProcessQualificationEvidenceBuilderTests {
                 at: now
             )
         }
+    }
+
+    @Test("oracle result requires distinct primary and oracle output artifacts")
+    func rejectsSharedOracleOutputArtifact() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let result = ToolOracleQualificationResult(
+            resultID: "oracle-shared-output",
+            qualificationID: "qualification-1",
+            primaryToolID: "qualified-scan",
+            oracleToolID: "independent-scan-oracle",
+            scope: fixture.scope,
+            issuer: fixture.issuer,
+            inputArtifacts: [fixture.input],
+            primaryOutputArtifacts: [fixture.output],
+            oracleOutputArtifacts: [fixture.output],
+            cases: [Fixture.passingOracleCase("case-1")],
+            checkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        #expect(!result.isStructurallyValid)
+        #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try result.canonicalData()
+        }
+    }
+
+    @Test("oracle agreement values must be bound to both case outcomes")
+    func rejectsUnboundOracleAgreementValues() throws {
+        let primary = ToolQualificationCaseOutcome(
+            caseID: "case-1",
+            coverageTags: ["fixture"],
+            comparisons: [ToolQualificationMetricComparison(
+                metricID: "metric",
+                observed: 0,
+                expected: 0
+            )]
+        )
+        let oracle = ToolQualificationCaseOutcome(
+            caseID: "case-1",
+            coverageTags: ["fixture"],
+            comparisons: [ToolQualificationMetricComparison(
+                metricID: "metric",
+                observed: 1,
+                expected: 1
+            )]
+        )
+        let comparison = ToolOracleCaseComparison(
+            caseID: "case-1",
+            primary: primary,
+            oracle: oracle,
+            agreementComparisons: [ToolOracleMetricComparison(
+                metricID: "metric",
+                primaryObserved: 0,
+                oracleObserved: 0
+            )]
+        )
+
+        #expect(!comparison.isStructurallyValid)
+        #expect(!comparison.agreed)
     }
 
     @Test("persisted qualification contracts require their exact current schema")
@@ -162,6 +268,7 @@ private struct Fixture {
     let health: ArtifactReference
     let input: ArtifactReference
     let output: ArtifactReference
+    let oracleOutput: ArtifactReference
     let issuer: ProducerIdentity
 
     init() throws {
@@ -184,6 +291,7 @@ private struct Fixture {
         )
         input = try Self.artifact("input", root: root)
         output = try Self.artifact("output", root: root)
+        oracleOutput = try Self.artifact("oracle-output", root: root)
         issuer = try ProducerIdentity(
             kind: .engine,
             identifier: "qualification-runner",
@@ -217,6 +325,9 @@ private struct Fixture {
                 issuer: issuer,
                 inputArtifacts: [input],
                 outputArtifacts: [output],
+                coverage: ToolQualificationCoverage(
+                    operatingCornerIDs: ["tt", "ss", "ff"]
+                ),
                 cases: [Self.passingCase("case-1")],
                 checkedAt: checkedAt
             ).canonicalData(),
@@ -234,7 +345,10 @@ private struct Fixture {
                 issuer: issuer,
                 inputArtifacts: [input],
                 primaryOutputArtifacts: [output],
-                oracleOutputArtifacts: [output],
+                oracleOutputArtifacts: [oracleOutput],
+                coverage: ToolQualificationCoverage(
+                    operatingCornerIDs: ["tt", "ss", "ff"]
+                ),
                 cases: [Self.passingOracleCase("case-1")],
                 checkedAt: checkedAt
             ).canonicalData(),
@@ -257,7 +371,11 @@ private struct Fixture {
         )
     }
 
-    func request(now: Date, qualifiedModelIDs: [String] = []) -> ToolProcessQualificationEvidenceBuildRequest {
+    func request(
+        now: Date,
+        qualifiedModelIDs: [String] = [],
+        requiredOperatingCornerIDs: [String] = []
+    ) -> ToolProcessQualificationEvidenceBuildRequest {
         ToolProcessQualificationEvidenceBuildRequest(
             qualificationID: "qualification-1",
             toolID: "qualified-scan",
@@ -267,8 +385,9 @@ private struct Fixture {
             oracleResultArtifacts: [oracle],
             healthResultArtifacts: [health],
             inputArtifacts: [input],
-            outputArtifacts: [output],
+            outputArtifacts: [output, oracleOutput],
             qualifiedModelIDs: qualifiedModelIDs,
+            requiredOperatingCornerIDs: requiredOperatingCornerIDs,
             qualifiedAt: now.addingTimeInterval(-10),
             expiresAt: now.addingTimeInterval(100)
         )
@@ -321,15 +440,15 @@ private struct Fixture {
         )
     }
 
-    private static func passingOracleCase(_ caseID: String) -> ToolOracleCaseComparison {
+    fileprivate static func passingOracleCase(_ caseID: String) -> ToolOracleCaseComparison {
         ToolOracleCaseComparison(
             caseID: caseID,
             primary: passingCase(caseID),
             oracle: passingCase(caseID),
-            agreementComparisons: [ToolQualificationMetricComparison(
-                metricID: "agreement",
-                observed: 0,
-                expected: 0
+            agreementComparisons: [ToolOracleMetricComparison(
+                metricID: "case-result",
+                primaryObserved: 0,
+                oracleObserved: 0
             )]
         )
     }

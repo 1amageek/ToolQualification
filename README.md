@@ -52,8 +52,8 @@ no dependency on project, run, or workspace storage.
 | `ToolRegistry` | Registers descriptors, selects eligible candidates deterministically |
 | `ToolEnvironment` / `ToolAsset` | Executable paths, platform, required assets (PDK, rule decks) |
 | `ToolQualificationScope` / `ToolOracleQualificationScope` | Exact tool version/binary, algorithm, process, deck, PDK and independent oracle binary scope |
-| `ToolProcessQualificationEvidence` | Complete retained corpus/oracle/health/approval evidence graph plus qualified input/output artifacts and validity window |
-| `ToolProcessQualificationEvidenceBuilder` | Promotes artifact-backed independent corpus, oracle, health and production-approval evidence into a qualified process record |
+| `ToolProcessQualificationEvidence` | Complete retained corpus/oracle/health evidence graph plus qualified input/output artifacts and validity window |
+| `ToolProcessQualificationEvidenceBuilder` | Promotes artifact-backed independent corpus, oracle, and health evidence into a qualified process record |
 | `ToolQualificationCLICore` / `toolqualification` | Testable CLI core + headless executable |
 
 ## Rules
@@ -84,8 +84,9 @@ no dependency on project, run, or workspace storage.
 - `productionEligible` additionally requires a retained
   `ToolProcessQualificationEvidence` whose tool ID/version/binary, process, PDK,
   deck and independent oracle scope match exactly. Its corpus, oracle, health,
-  human approval, qualified input and qualified output artifact groups must all
-  be complete and fresh.
+  qualified input and qualified output artifact groups must all be complete and
+  fresh. Human approval is a DesignFlowKernel and ReleaseEngine gate, not tool
+  qualification evidence.
 
 | Level | Implied qualified evidence |
 |---|---|
@@ -188,8 +189,7 @@ eligible first, then trust level descending, then toolID ascending.
 
 Validate a persisted process qualification record independently of a flow run.
 The command separates structural validity, PDK scope completeness, freshness,
-independence and approval blockers. It exits 2 for a readable but unqualified
-record, so a missing human or foundry approval cannot be interpreted as a pass:
+and independence blockers. It exits 2 for a readable but unqualified record:
 
 ```bash
 toolqualification validate-process-evidence \
@@ -200,15 +200,15 @@ toolqualification validate-process-evidence \
 ```
 
 The JSON result includes the exact qualification scope, retained artifact graph,
-and qualification window. Schema version 2 is intentionally breaking and does
-not decode ID-only qualification records.
+qualified operating-corner IDs, and qualification window. The current schema is intentionally strict and does
+not decode obsolete ID-only qualification records.
 
 ### build-process-evidence
 
 Build a process qualification record only from a JSON
 `ToolProcessQualificationEvidenceBuildRequest` containing complete PDK scope,
-artifact-backed independent corpus/oracle/health/production-approval evidence,
-and a valid qualification window:
+artifact-backed independent corpus/oracle/health evidence, and a valid
+qualification window:
 
 ```bash
 toolqualification build-process-evidence \
@@ -219,10 +219,12 @@ toolqualification build-process-evidence \
 ```
 
 The builder verifies evidence kinds, independent passing qualification summaries,
-artifact IDs, project-relative paths, SHA-256 digests, byte counts, scope and
-validity. It exits 2 without writing an output record when any promotion
-condition is missing. This command creates a reproducible local record from
-already-produced evidence; it does not claim foundry qualification by itself.
+distinct primary/oracle outputs, result-to-artifact bindings, project-relative
+paths, SHA-256 digests, byte counts, scope, timestamps, validity, and that both
+corpus and oracle results cover every requested operating corner. It exits 2
+without writing an output record when any promotion condition is missing. This
+command creates a reproducible local record from already-produced evidence; it
+does not claim foundry qualification by itself.
 
 ### issue-record
 

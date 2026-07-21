@@ -14,7 +14,7 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
     public init(descriptors: [ToolDescriptor]) throws {
         var descriptorsByID: [String: ToolDescriptor] = [:]
         for descriptor in descriptors {
-            try Self.validateToolID(descriptor.toolID)
+            try Self.validate(descriptor)
             guard descriptorsByID[descriptor.toolID] == nil else {
                 throw ToolQualificationError.duplicateToolID(descriptor.toolID)
             }
@@ -46,8 +46,15 @@ public struct ToolRegistry: Sendable, Hashable, Codable {
     }
 
     public mutating func upsert(_ descriptor: ToolDescriptor) throws {
-        try Self.validateToolID(descriptor.toolID)
+        try Self.validate(descriptor)
         descriptors[descriptor.toolID] = descriptor
+    }
+
+    private static func validate(_ descriptor: ToolDescriptor) throws {
+        try validateToolID(descriptor.toolID)
+        guard descriptor.isStructurallyValid else {
+            throw ToolQualificationError.structurallyInvalidDescriptor(descriptor.toolID)
+        }
     }
 
     public func candidates(

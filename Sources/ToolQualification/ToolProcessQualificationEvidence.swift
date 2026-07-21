@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
 
     public let schemaVersion: Int
     public let qualificationID: String
@@ -16,6 +16,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     public let inputArtifacts: [ArtifactReference]
     public let outputArtifacts: [ArtifactReference]
     public let qualifiedModelIDs: [String]
+    public let qualifiedOperatingCornerIDs: [String]
     public let blockers: [String]
     public let qualifiedAt: Date?
     public let expiresAt: Date?
@@ -33,6 +34,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         case inputArtifacts
         case outputArtifacts
         case qualifiedModelIDs
+        case qualifiedOperatingCornerIDs
         case blockers
         case qualifiedAt
         case expiresAt
@@ -50,6 +52,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         inputArtifacts: [ArtifactReference] = [],
         outputArtifacts: [ArtifactReference] = [],
         qualifiedModelIDs: [String] = [],
+        qualifiedOperatingCornerIDs: [String] = [],
         blockers: [String] = [],
         qualifiedAt: Date? = nil,
         expiresAt: Date? = nil,
@@ -67,6 +70,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         self.inputArtifacts = Self.sortedArtifacts(inputArtifacts)
         self.outputArtifacts = Self.sortedArtifacts(outputArtifacts)
         self.qualifiedModelIDs = Self.sortedUnique(qualifiedModelIDs)
+        self.qualifiedOperatingCornerIDs = Self.sortedUnique(qualifiedOperatingCornerIDs)
         self.blockers = Self.sortedUnique(blockers)
         self.qualifiedAt = qualifiedAt
         self.expiresAt = expiresAt
@@ -94,6 +98,10 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
             outputArtifacts: try container.decode([ArtifactReference].self, forKey: .outputArtifacts),
             qualifiedModelIDs: try container.decode([String].self, forKey: .qualifiedModelIDs),
+            qualifiedOperatingCornerIDs: try container.decode(
+                [String].self,
+                forKey: .qualifiedOperatingCornerIDs
+            ),
             blockers: try container.decode([String].self, forKey: .blockers),
             qualifiedAt: try container.decodeIfPresent(Date.self, forKey: .qualifiedAt),
             expiresAt: try container.decodeIfPresent(Date.self, forKey: .expiresAt),
@@ -152,7 +160,10 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && !toolID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && scope.isCompleteForProduction
             && hasIndependentOracleEvidence
-            && identityArtifacts.all.count == Set(identityArtifacts.all).count
+            && identityArtifacts.all.count
+                == Set(identityArtifacts.all.map(Self.artifactIdentityKey)).count
+            && identityArtifacts.all.count
+                == Set(identityArtifacts.all.map { $0.id.rawValue }).count
             && identityArtifacts.all.allSatisfy(Self.isVerifiableArtifact)
             && evidenceGroups.allSatisfy { kind, evidence in
                 !evidence.isEmpty && evidence.allSatisfy {
@@ -167,8 +178,17 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && evidenceArtifacts.allSatisfy(Self.isVerifiableArtifact)
             && !inputArtifacts.isEmpty
             && inputArtifacts.allSatisfy(Self.isVerifiableArtifact)
+            && Set(inputArtifacts.map(Self.artifactIdentityKey)).count == inputArtifacts.count
+            && Set(inputArtifacts.map { $0.id.rawValue }).count == inputArtifacts.count
             && !outputArtifacts.isEmpty
             && outputArtifacts.allSatisfy(Self.isVerifiableArtifact)
+            && Set(outputArtifacts.map(Self.artifactIdentityKey)).count == outputArtifacts.count
+            && Set(outputArtifacts.map { $0.id.rawValue }).count == outputArtifacts.count
+            && Set(inputArtifacts.map(Self.artifactIdentityKey))
+                .isDisjoint(with: Set(outputArtifacts.map(Self.artifactIdentityKey)))
+            && Set(inputArtifacts.map { $0.id.rawValue })
+                .isDisjoint(with: Set(outputArtifacts.map { $0.id.rawValue }))
+            && qualifiedOperatingCornerIDs.allSatisfy(Self.isToken)
     }
 
     public func isQualified(at date: Date, requirePDKScope: Bool = true) -> Bool {
@@ -183,7 +203,11 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
         guard let qualifiedAt, let expiresAt else {
             return false
         }
-        return qualifiedAt <= date && date < expiresAt
+        return qualifiedAt.timeIntervalSinceReferenceDate.isFinite
+            && expiresAt.timeIntervalSinceReferenceDate.isFinite
+            && date.timeIntervalSinceReferenceDate.isFinite
+            && qualifiedAt <= date
+            && date < expiresAt
     }
 
     public func canonicalData() throws -> Data {
@@ -204,6 +228,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             inputArtifacts: Self.sortedArtifacts(inputArtifacts),
             outputArtifacts: Self.sortedArtifacts(outputArtifacts),
             qualifiedModelIDs: qualifiedModelIDs.sorted(),
+            qualifiedOperatingCornerIDs: qualifiedOperatingCornerIDs.sorted(),
             blockers: blockers.sorted(),
             qualifiedAt: qualifiedAt,
             expiresAt: expiresAt,
@@ -232,8 +257,23 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && artifact.byteCount > 0
     }
 
+    private static func artifactIdentityKey(_ artifact: ArtifactReference) -> String {
+        [
+            artifact.locator.location.storage.rawValue,
+            artifact.locator.location.value,
+        ].joined(separator: "|")
+    }
+
     private static func sortedUnique(_ values: [String]) -> [String] {
         Array(Set(values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })).sorted()
+    }
+
+    private static func isToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines) == value
+            && !value.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
     }
 
     private static func sortedEvidence(_ evidence: [ToolEvidence]) -> [ToolEvidence] {

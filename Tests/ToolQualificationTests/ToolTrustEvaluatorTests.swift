@@ -6,6 +6,36 @@ import Testing
 
 @Suite("Tool trust evaluator")
 struct ToolTrustEvaluatorTests {
+    @Test func structurallyInvalidDescriptorIsRejectedAtDirectEvaluatorEntry() async throws {
+        let fixture = try QualificationFixture()
+        var descriptor = fixture.descriptor(level: .unknown, evidence: [])
+        descriptor.capabilities = []
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .unknown),
+            health: nil
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "TOOL_DESCRIPTOR_STRUCTURALLY_INVALID" })
+    }
+
+    @Test func nonfiniteEvaluationTimestampIsRejected() async throws {
+        let fixture = try QualificationFixture()
+        let descriptor = fixture.descriptor(level: .unknown, evidence: [])
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .unknown),
+            health: nil,
+            evaluatedAt: Date(timeIntervalSinceReferenceDate: .infinity)
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "INVALID_EVALUATION_TIMESTAMP" })
+    }
+
     @Test("serialized trust requirements require the independence field")
     func trustRequirementRejectsMissingIndependenceField() throws {
         let data = Data("""
@@ -160,6 +190,75 @@ struct ToolTrustEvaluatorTests {
         })
     }
 
+    @Test func futureEvidenceIsRejectedWithoutAnAgeLimit() async throws {
+        let fixture = try QualificationFixture()
+        let descriptor = fixture.descriptor(
+            level: .corpusChecked,
+            evidence: [ToolEvidence(
+                evidenceID: "future",
+                kind: .corpus,
+                artifact: fixture.outputArtifact,
+                checkedAt: fixture.checkedAt.addingTimeInterval(1)
+            )]
+        )
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .corpusChecked),
+            health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed),
+            artifactReader: fixture.reader,
+            evaluatedAt: fixture.checkedAt
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains {
+            $0.code == "STALE_REQUIRED_EVIDENCE" && $0.message.contains("future")
+        })
+    }
+
+    @Test func evidenceIdentifierMustMatchCanonicalResultIdentifier() async throws {
+        let fixture = try QualificationFixture()
+        let evidence = try await fixture.corpusEvidence(passing: true)
+        let mismatched = ToolEvidence(
+            evidenceID: "different-result",
+            kind: evidence.kind,
+            artifact: evidence.artifact,
+            checkedAt: evidence.checkedAt
+        )
+        let descriptor = fixture.descriptor(level: .corpusChecked, evidence: [mismatched])
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .corpusChecked),
+            health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed),
+            artifactReader: fixture.reader,
+            evaluatedAt: fixture.checkedAt
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH" })
+    }
+
+    @Test func retainedResultInputsAndOutputsAreReverified() async throws {
+        let fixture = try QualificationFixture()
+        let evidence = try await fixture.corpusEvidence(passing: true)
+        await fixture.reader.remove(fixture.outputArtifact)
+        let descriptor = fixture.descriptor(level: .corpusChecked, evidence: [evidence])
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .corpusChecked),
+            health: ToolHealthCheckResult(toolID: descriptor.toolID, status: .passed),
+            artifactReader: fixture.reader,
+            evaluatedAt: fixture.checkedAt
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains {
+            $0.code == "QUALIFICATION_BOUND_ARTIFACT_INTEGRITY_FAILED"
+        })
+    }
+
     @Test func productionLevelRequiresProcessEvidenceAndArtifactReader() async throws {
         let fixture = try QualificationFixture()
         let descriptor = fixture.descriptor(level: .productionEligible, evidence: [])
@@ -193,6 +292,29 @@ struct ToolTrustEvaluatorTests {
         #expect(decision.status == .rejected)
         #expect(decision.diagnostics.contains { $0.code == "HEALTH_CHECK_TOOL_ID_MISMATCH" })
         #expect(decision.diagnostics.contains { $0.code == "MISSING_REQUIRED_EVIDENCE" })
+    }
+
+    @Test func passingHealthCannotContainAnErrorDiagnostic() async throws {
+        let fixture = try QualificationFixture()
+        let descriptor = fixture.descriptor(level: .unknown, evidence: [])
+        let health = ToolHealthCheckResult(
+            toolID: descriptor.toolID,
+            status: .passed,
+            diagnostics: [ToolDiagnostic(
+                severity: .error,
+                code: "PROBE_FAILED",
+                message: "Version probe failed."
+            )]
+        )
+
+        let decision = await ToolTrustEvaluator().evaluate(
+            descriptor: descriptor,
+            requirement: fixture.requirement(minimumLevel: .unknown),
+            health: health
+        )
+
+        #expect(decision.status == .rejected)
+        #expect(decision.diagnostics.contains { $0.code == "HEALTH_CHECK_STRUCTURALLY_INVALID" })
     }
 
     @Test func failedHealthCheckIsRejected() async throws {
@@ -500,6 +622,8 @@ private struct QualificationFixture {
     }
 
     func corpusEvidence(passing: Bool, canonical: Bool = true) async throws -> ToolEvidence {
+        await reader.insert(Data([0]), for: inputArtifact)
+        await reader.insert(Data([0]), for: outputArtifact)
         let result = ToolCorpusQualificationResult(
             resultID: "corpus-result",
             qualificationID: "qualification",
@@ -602,6 +726,10 @@ private actor InMemoryQualificationArtifactReader: ToolQualificationArtifactRead
 
     func insert(_ data: Data, for reference: ArtifactReference) {
         dataByReference[reference] = data
+    }
+
+    func remove(_ reference: ArtifactReference) {
+        dataByReference.removeValue(forKey: reference)
     }
 
     func verifiedData(for reference: ArtifactReference) async throws -> Data {

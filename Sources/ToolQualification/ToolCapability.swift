@@ -18,4 +18,18 @@ public struct ToolCapability: Sendable, Hashable, Codable {
         self.outputFormats = outputFormats
         self.limitations = limitations
     }
+
+    public var isStructurallyValid: Bool {
+        !operationID.isEmpty
+            && operationID.trimmingCharacters(in: .whitespacesAndNewlines) == operationID
+            && !operationID.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
+            && Set(inputFormats).count == inputFormats.count
+            && Set(outputFormats).count == outputFormats.count
+            && limitations.allSatisfy {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            && Set(limitations).count == limitations.count
+    }
 }

@@ -4,13 +4,13 @@ public struct ToolOracleCaseComparison: Sendable, Hashable, Codable {
     public let caseID: String
     public let primary: ToolQualificationCaseOutcome
     public let oracle: ToolQualificationCaseOutcome
-    public let agreementComparisons: [ToolQualificationMetricComparison]
+    public let agreementComparisons: [ToolOracleMetricComparison]
 
     public init(
         caseID: String,
         primary: ToolQualificationCaseOutcome,
         oracle: ToolQualificationCaseOutcome,
-        agreementComparisons: [ToolQualificationMetricComparison]
+        agreementComparisons: [ToolOracleMetricComparison]
     ) {
         self.caseID = caseID
         self.primary = primary
@@ -19,15 +19,33 @@ public struct ToolOracleCaseComparison: Sendable, Hashable, Codable {
     }
 
     public var isStructurallyValid: Bool {
-        !caseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard primary.isStructurallyValid, oracle.isStructurallyValid else {
+            return false
+        }
+        let primaryComparisons = Dictionary(
+            uniqueKeysWithValues: primary.comparisons.map { ($0.metricID, $0) }
+        )
+        let oracleComparisons = Dictionary(
+            uniqueKeysWithValues: oracle.comparisons.map { ($0.metricID, $0) }
+        )
+        return !caseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && primary.caseID == caseID
             && oracle.caseID == caseID
-            && primary.isStructurallyValid
-            && oracle.isStructurallyValid
+            && primary.coverageTags == oracle.coverageTags
             && !agreementComparisons.isEmpty
             && agreementComparisons.map(\.metricID) == agreementComparisons.map(\.metricID).sorted()
             && Set(agreementComparisons.map(\.metricID)).count == agreementComparisons.count
             && agreementComparisons.allSatisfy(\.isStructurallyValid)
+            && Set(agreementComparisons.map(\.metricID)) == Set(primaryComparisons.keys)
+            && Set(primaryComparisons.keys) == Set(oracleComparisons.keys)
+            && agreementComparisons.allSatisfy { comparison in
+                guard let primaryMetric = primaryComparisons[comparison.metricID],
+                      let oracleMetric = oracleComparisons[comparison.metricID] else {
+                    return false
+                }
+                return comparison.primaryObserved == primaryMetric.observed
+                    && comparison.oracleObserved == oracleMetric.observed
+            }
     }
 
     public var primaryPassed: Bool { primary.passed }

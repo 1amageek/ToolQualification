@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 6
 
     public var schemaVersion: Int
     public var qualificationID: String
@@ -15,6 +15,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
     public var inputArtifacts: [ArtifactReference]
     public var outputArtifacts: [ArtifactReference]
     public var qualifiedModelIDs: [String]
+    public var requiredOperatingCornerIDs: [String]
     public var requirePDKScope: Bool
     public var qualifiedAt: Date
     public var expiresAt: Date
@@ -30,6 +31,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         inputArtifacts: [ArtifactReference] = [],
         outputArtifacts: [ArtifactReference] = [],
         qualifiedModelIDs: [String] = [],
+        requiredOperatingCornerIDs: [String] = [],
         requirePDKScope: Bool = true,
         qualifiedAt: Date,
         expiresAt: Date,
@@ -46,6 +48,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         self.inputArtifacts = inputArtifacts
         self.outputArtifacts = outputArtifacts
         self.qualifiedModelIDs = Self.sortedUnique(qualifiedModelIDs)
+        self.requiredOperatingCornerIDs = Self.sortedUnique(requiredOperatingCornerIDs)
         self.requirePDKScope = requirePDKScope
         self.qualifiedAt = qualifiedAt
         self.expiresAt = expiresAt
@@ -63,6 +66,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         case inputArtifacts
         case outputArtifacts
         case qualifiedModelIDs
+        case requiredOperatingCornerIDs
         case requirePDKScope
         case qualifiedAt
         case expiresAt
@@ -90,6 +94,9 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         qualifiedModelIDs = Self.sortedUnique(
             try container.decode([String].self, forKey: .qualifiedModelIDs)
         )
+        requiredOperatingCornerIDs = Self.sortedUnique(
+            try container.decode([String].self, forKey: .requiredOperatingCornerIDs)
+        )
         requirePDKScope = try container.decode(Bool.self, forKey: .requirePDKScope)
         qualifiedAt = try Self.decodeDate(from: container, forKey: .qualifiedAt)
         expiresAt = try Self.decodeDate(from: container, forKey: .expiresAt)
@@ -108,6 +115,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
         try container.encode(inputArtifacts, forKey: .inputArtifacts)
         try container.encode(outputArtifacts, forKey: .outputArtifacts)
         try container.encode(qualifiedModelIDs, forKey: .qualifiedModelIDs)
+        try container.encode(requiredOperatingCornerIDs, forKey: .requiredOperatingCornerIDs)
         try container.encode(requirePDKScope, forKey: .requirePDKScope)
         try container.encode(Self.iso8601String(from: qualifiedAt), forKey: .qualifiedAt)
         try container.encode(Self.iso8601String(from: expiresAt), forKey: .expiresAt)

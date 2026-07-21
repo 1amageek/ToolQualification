@@ -26,6 +26,13 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 "production qualification requires tool version, binary, process, PDK, deck, and independent oracle scope"
             )
         }
+        guard request.qualifiedAt.timeIntervalSinceReferenceDate.isFinite,
+              request.expiresAt.timeIntervalSinceReferenceDate.isFinite,
+              date.timeIntervalSinceReferenceDate.isFinite else {
+            throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+                "qualification timestamps must be finite"
+            )
+        }
         guard request.qualifiedAt < request.expiresAt else {
             throw ToolProcessQualificationEvidenceBuildError.invalidValidityWindow
         }
@@ -37,6 +44,13 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         }) else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "qualifiedModelIDs must not contain empty values"
+            )
+        }
+        guard request.requiredOperatingCornerIDs.allSatisfy({
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+                "requiredOperatingCornerIDs must not contain empty values"
             )
         }
 
@@ -59,6 +73,14 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             label: "outputArtifacts",
             reading: artifacts
         )
+        guard Set(inputArtifacts.map(artifactIdentityKey))
+            .isDisjoint(with: Set(outputArtifacts.map(artifactIdentityKey))),
+              Set(inputArtifacts.map { $0.id.rawValue })
+                .isDisjoint(with: Set(outputArtifacts.map { $0.id.rawValue })) else {
+            throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+                "inputArtifacts and outputArtifacts must identify distinct retained artifacts"
+            )
+        }
         let corpusEvidence = try await corpusEvidence(
             request: request,
             inputArtifacts: inputArtifacts,
@@ -100,6 +122,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             inputArtifacts: inputArtifacts,
             outputArtifacts: outputArtifacts,
             qualifiedModelIDs: request.qualifiedModelIDs,
+            qualifiedOperatingCornerIDs: request.requiredOperatingCornerIDs,
             blockers: [],
             qualifiedAt: request.qualifiedAt,
             expiresAt: request.expiresAt
@@ -122,6 +145,9 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 from: await artifacts.verifiedData(for: artifact)
             )
             guard result.isPassing,
+                  result.coverage.covers(
+                    operatingCornerIDs: request.requiredOperatingCornerIDs
+                  ),
                   result.qualificationID == request.qualificationID,
                   result.toolID == request.toolID,
                   result.scope == request.scope,
@@ -158,6 +184,11 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 from: await artifacts.verifiedData(for: artifact)
             )
             guard result.isPassing,
+                  result.coverage.covers(
+                    operatingCornerIDs: request.requiredOperatingCornerIDs
+                  ),
+                  Set(result.primaryOutputArtifacts.map(artifactIdentityKey))
+                    .isDisjoint(with: Set(result.oracleOutputArtifacts.map(artifactIdentityKey))),
                   result.qualificationID == request.qualificationID,
                   result.primaryToolID == request.toolID,
                   result.scope == request.scope,
@@ -246,9 +277,11 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             )
         }
         var artifactsByKey: [String: ArtifactReference] = [:]
+        var artifactIDs = Set<String>()
         for artifact in artifacts {
-            let key = artifactKey(artifact)
-            guard artifactsByKey[key] == nil else {
+            let key = artifactIdentityKey(artifact)
+            guard artifactsByKey[key] == nil,
+                  artifactIDs.insert(artifact.id.rawValue).inserted else {
                 throw ToolProcessQualificationEvidenceBuildError.duplicateArtifact(
                     artifactID(artifact)
                 )
@@ -278,9 +311,11 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             )
         }
         var seen = Set<String>()
+        var seenIDs = Set<String>()
         for artifact in artifacts {
-            let key = artifactKey(artifact)
-            guard seen.insert(key).inserted else {
+            let key = artifactIdentityKey(artifact)
+            guard seen.insert(key).inserted,
+                  seenIDs.insert(artifact.id.rawValue).inserted else {
                 throw ToolProcessQualificationEvidenceBuildError.duplicateArtifact(
                     artifactID(artifact)
                 )
@@ -303,12 +338,18 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         scope: ToolQualificationScope,
         reading reader: any ToolQualificationArtifactReading
     ) async throws {
-        guard Set(artifacts.all).count == artifacts.all.count else {
+        guard Set(artifacts.all.map(artifactIdentityKey)).count == artifacts.all.count,
+              Set(artifacts.all.map { $0.id.rawValue }).count == artifacts.all.count else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "tool, process, PDK, deck, and oracle identity artifacts must be distinct"
             )
         }
         for artifact in artifacts.all {
+            guard isVerifiableArtifact(artifact) else {
+                throw ToolProcessQualificationEvidenceBuildError.invalidArtifact(
+                    artifactID(artifact)
+                )
+            }
             _ = try await reader.verifiedData(for: artifact)
         }
 
@@ -335,11 +376,22 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         }
     }
 
-    private func artifactKey(_ artifact: ArtifactReference) -> String {
-        "\(artifact.id.rawValue)|\(artifact.locator.location.value)"
+    private func artifactIdentityKey(_ artifact: ArtifactReference) -> String {
+        [
+            artifact.locator.location.storage.rawValue,
+            artifact.locator.location.value,
+        ].joined(separator: "|")
     }
 
     private func artifactID(_ artifact: ArtifactReference) -> String {
         artifact.id.rawValue
+    }
+
+    private func isVerifiableArtifact(_ artifact: ArtifactReference) -> Bool {
+        artifact.locator.location.storage == .workspaceRelative
+            && !artifact.locator.location.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && artifact.digest.algorithm == .sha256
+            && artifact.digest.hexadecimalValue.utf8.count == 64
+            && artifact.byteCount > 0
     }
 }

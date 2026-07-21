@@ -117,6 +117,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         )
         let input = try artifact("input", root: root)
         let output = try artifact("output", root: root)
+        let oracleOutput = try artifact("oracle-output", root: root)
         let issuer = try ProducerIdentity(
             kind: .engine,
             identifier: "qualification-runner",
@@ -158,20 +159,24 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 issuer: issuer,
                 inputArtifacts: [input],
                 primaryOutputArtifacts: [output],
-                oracleOutputArtifacts: [output],
+                oracleOutputArtifacts: [oracleOutput],
                 cases: [ToolOracleCaseComparison(
                     caseID: "case-1",
                     primary: ToolQualificationCaseOutcome(
                         caseID: "case-1",
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "primary", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case-1",
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "oracle", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
-                    agreementComparisons: [ToolQualificationMetricComparison(metricID: "agreement", observed: 0, expected: 0)]
+                    agreementComparisons: [ToolOracleMetricComparison(
+                        metricID: "case-result",
+                        primaryObserved: 0,
+                        oracleObserved: 0
+                    )]
                 )],
                 checkedAt: now
             ).canonicalData(),
@@ -201,7 +206,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             oracleResultArtifacts: [oracle],
             healthResultArtifacts: [health],
             inputArtifacts: [input],
-            outputArtifacts: [output],
+            outputArtifacts: [output, oracleOutput],
             qualifiedModelIDs: ["process-model-a"],
             qualifiedAt: now.addingTimeInterval(-10),
             expiresAt: now.addingTimeInterval(100)

@@ -83,11 +83,17 @@ public struct ToolHealthQualificationResult: Sendable, Hashable, Codable {
             && !toolID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && scope.isComplete
             && !inputArtifacts.isEmpty
+            && inputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
+            && ToolQualificationArtifactValidation.hasDistinctIdentities(inputArtifacts)
             && !outputArtifacts.isEmpty
+            && outputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
+            && ToolQualificationArtifactValidation.hasDistinctIdentities(outputArtifacts)
+            && ToolQualificationArtifactValidation.areDisjoint(inputArtifacts, outputArtifacts)
             && diagnostics.allSatisfy {
                 !$0.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && !$0.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
+            && checkedAt.timeIntervalSinceReferenceDate.isFinite
     }
 
     public var status: ToolHealthStatus {

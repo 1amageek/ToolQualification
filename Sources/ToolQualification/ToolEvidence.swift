@@ -65,6 +65,11 @@ public struct ToolEvidence: Sendable, Hashable, Codable {
             && artifact.byteCount > 0
     }
 
+    public var isStructurallyValid: Bool {
+        !evidenceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (artifact == nil || hasVerifiableArtifactBinding)
+    }
+
     private static func iso8601Date(from string: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

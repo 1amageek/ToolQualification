@@ -16,8 +16,8 @@ public struct ToolOracleQualificationScope: Sendable, Hashable, Codable {
     }
 
     public var isComplete: Bool {
-        !implementationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        Self.isToken(implementationID)
+            && Self.isToken(version)
             && Self.isSHA256(binaryDigest)
     }
 
@@ -27,5 +27,13 @@ public struct ToolOracleQualificationScope: Sendable, Hashable, Codable {
                 || (byte >= 65 && byte <= 70)
                 || (byte >= 97 && byte <= 102)
         }
+    }
+
+    private static func isToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines) == value
+            && !value.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
     }
 }

@@ -17,4 +17,14 @@ public struct ToolTrustProfile: Sendable, Hashable, Codable {
         self.processQualification = processQualification
         self.knownLimitations = knownLimitations
     }
+
+    public var isStructurallyValid: Bool {
+        evidence.allSatisfy(\.isStructurallyValid)
+            && Set(evidence.map(\.evidenceID)).count == evidence.count
+            && knownLimitations.allSatisfy {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            && Set(knownLimitations).count == knownLimitations.count
+            && (processQualification?.isStructurallyValid ?? true)
+    }
 }

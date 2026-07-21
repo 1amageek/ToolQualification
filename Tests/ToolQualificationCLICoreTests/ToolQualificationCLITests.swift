@@ -516,6 +516,7 @@ struct ToolQualificationCLITests {
         )
         let input = try validationArtifact("input", root: root)
         let output = try validationArtifact("output", root: root)
+        let oracleOutput = try validationArtifact("oracle-output", root: root)
         let issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1.0.0")
         let checkedAt = Date(timeIntervalSince1970: 120)
         let corpus = try validationArtifact(
@@ -550,20 +551,24 @@ struct ToolQualificationCLITests {
                 issuer: issuer,
                 inputArtifacts: [input],
                 primaryOutputArtifacts: [output],
-                oracleOutputArtifacts: [output],
+                oracleOutputArtifacts: [oracleOutput],
                 cases: [ToolOracleCaseComparison(
                     caseID: "case",
                     primary: ToolQualificationCaseOutcome(
                         caseID: "case",
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "primary", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case",
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "oracle", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
-                    agreementComparisons: [ToolQualificationMetricComparison(metricID: "agreement", observed: 0, expected: 0)]
+                    agreementComparisons: [ToolOracleMetricComparison(
+                        metricID: "case-result",
+                        primaryObserved: 0,
+                        oracleObserved: 0
+                    )]
                 )],
                 checkedAt: checkedAt
             ).canonicalData(),
@@ -594,7 +599,7 @@ struct ToolQualificationCLITests {
                 oracleResultArtifacts: [oracle],
                 healthResultArtifacts: [health],
                 inputArtifacts: [input],
-                outputArtifacts: [output],
+                outputArtifacts: [output, oracleOutput],
                 qualifiedAt: Date(timeIntervalSince1970: 100),
                 expiresAt: Date(timeIntervalSince1970: 200)
             ),

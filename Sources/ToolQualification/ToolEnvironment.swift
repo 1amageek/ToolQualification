@@ -17,4 +17,13 @@ public struct ToolEnvironment: Sendable, Hashable, Codable {
         self.platform = platform
         self.requiredAssets = requiredAssets
     }
+
+    public var isStructurallyValid: Bool {
+        !platform.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (executablePath.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? true)
+            && (libraryPath.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? true)
+            && requiredAssets.allSatisfy(\.isStructurallyValid)
+            && Set(requiredAssets.map { "\($0.kind.rawValue)|\($0.path)" }).count
+                == requiredAssets.count
+    }
 }

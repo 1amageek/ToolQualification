@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let resultID: String
@@ -14,6 +14,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
     public let inputArtifacts: [ArtifactReference]
     public let primaryOutputArtifacts: [ArtifactReference]
     public let oracleOutputArtifacts: [ArtifactReference]
+    public let coverage: ToolQualificationCoverage
     public let cases: [ToolOracleCaseComparison]
     public let checkedAt: Date
 
@@ -28,6 +29,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
         case inputArtifacts
         case primaryOutputArtifacts
         case oracleOutputArtifacts
+        case coverage
         case cases
         case checkedAt
     }
@@ -42,6 +44,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
         inputArtifacts: [ArtifactReference],
         primaryOutputArtifacts: [ArtifactReference],
         oracleOutputArtifacts: [ArtifactReference],
+        coverage: ToolQualificationCoverage = ToolQualificationCoverage(),
         cases: [ToolOracleCaseComparison],
         checkedAt: Date,
         schemaVersion: Int = Self.currentSchemaVersion
@@ -56,6 +59,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
         self.inputArtifacts = inputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
         self.primaryOutputArtifacts = primaryOutputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
         self.oracleOutputArtifacts = oracleOutputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
+        self.coverage = coverage
         self.cases = cases.sorted { $0.caseID < $1.caseID }
         self.checkedAt = checkedAt
     }
@@ -80,6 +84,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
             inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
             primaryOutputArtifacts: try container.decode([ArtifactReference].self, forKey: .primaryOutputArtifacts),
             oracleOutputArtifacts: try container.decode([ArtifactReference].self, forKey: .oracleOutputArtifacts),
+            coverage: try container.decode(ToolQualificationCoverage.self, forKey: .coverage),
             cases: try container.decode([ToolOracleCaseComparison].self, forKey: .cases),
             checkedAt: try container.decode(Date.self, forKey: .checkedAt),
             schemaVersion: schemaVersion
@@ -95,11 +100,22 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
             && oracleToolID == scope.oracle?.implementationID
             && primaryToolID != oracleToolID
             && !inputArtifacts.isEmpty
+            && inputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
+            && ToolQualificationArtifactValidation.hasDistinctIdentities(inputArtifacts)
             && !primaryOutputArtifacts.isEmpty
+            && primaryOutputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
+            && ToolQualificationArtifactValidation.hasDistinctIdentities(primaryOutputArtifacts)
             && !oracleOutputArtifacts.isEmpty
+            && oracleOutputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
+            && ToolQualificationArtifactValidation.hasDistinctIdentities(oracleOutputArtifacts)
+            && ToolQualificationArtifactValidation.areDisjoint(inputArtifacts, primaryOutputArtifacts)
+            && ToolQualificationArtifactValidation.areDisjoint(inputArtifacts, oracleOutputArtifacts)
+            && ToolQualificationArtifactValidation.areDisjoint(primaryOutputArtifacts, oracleOutputArtifacts)
+            && coverage.isStructurallyValid
             && !cases.isEmpty
             && Set(cases.map(\.caseID)).count == cases.count
             && cases.allSatisfy(\.isStructurallyValid)
+            && checkedAt.timeIntervalSinceReferenceDate.isFinite
     }
 
     public var isPassing: Bool {
@@ -122,6 +138,7 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
             inputArtifacts: inputArtifacts,
             primaryOutputArtifacts: primaryOutputArtifacts,
             oracleOutputArtifacts: oracleOutputArtifacts,
+            coverage: coverage,
             cases: cases.map {
             ToolOracleCaseComparison(
                 caseID: $0.caseID,

@@ -132,6 +132,26 @@ struct ToolRegistryTests {
         }
     }
 
+    @Test func initializerRejectsStructurallyInvalidDescriptor() {
+        var descriptor = makeDescriptor(toolID: "drc", level: .unknown)
+        descriptor.capabilities = []
+
+        #expect(throws: ToolQualificationError.structurallyInvalidDescriptor("drc")) {
+            try ToolRegistry(descriptors: [descriptor])
+        }
+    }
+
+    @Test func upsertRejectsStructurallyInvalidDescriptor() throws {
+        var registry = ToolRegistry()
+        var descriptor = makeDescriptor(toolID: "drc", level: .unknown)
+        descriptor.environment.platform = " "
+
+        #expect(throws: ToolQualificationError.structurallyInvalidDescriptor("drc")) {
+            try registry.upsert(descriptor)
+        }
+        #expect(registry.descriptor(toolID: "drc") == nil)
+    }
+
     @Test func decoderRejectsDescriptorKeyMismatch() throws {
         let registry = try ToolRegistry(descriptors: [
             makeDescriptor(toolID: "drc", level: .unknown),
@@ -195,8 +215,12 @@ private struct SmokeQualificationFixture {
     }
 
     func descriptor(toolID: String) async throws -> ToolDescriptor {
-        let input = try artifact(id: "\(toolID)-input", data: Data("input".utf8))
-        let output = try artifact(id: "\(toolID)-output", data: Data("output".utf8))
+        let inputData = Data("input".utf8)
+        let outputData = Data("output".utf8)
+        let input = try artifact(id: "\(toolID)-input", data: inputData)
+        let output = try artifact(id: "\(toolID)-output", data: outputData)
+        await reader.insert(inputData, for: input)
+        await reader.insert(outputData, for: output)
         let result = ToolSmokeQualificationResult(
             resultID: "\(toolID)-smoke",
             qualificationID: "\(toolID)-qualification",

@@ -29,14 +29,32 @@ public struct ToolDescriptor: Sendable, Hashable, Codable {
 
     public var isStructurallyValid: Bool {
         let operationIDs = capabilities.map(\.operationID)
-        return !toolID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !environment.platform.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Self.isValidToolID(toolID)
+            && Self.isToken(displayName)
+            && Self.isToken(version)
             && !capabilities.isEmpty
-            && operationIDs.allSatisfy {
-                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
+            && capabilities.allSatisfy(\.isStructurallyValid)
             && Set(operationIDs).count == operationIDs.count
+            && trustProfile.isStructurallyValid
+            && environment.isStructurallyValid
+    }
+
+    private static func isValidToolID(_ value: String) -> Bool {
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+        )
+        return !value.isEmpty
+            && value.count <= 128
+            && value != "."
+            && value != ".."
+            && value.unicodeScalars.allSatisfy(allowed.contains)
+    }
+
+    private static func isToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines) == value
+            && !value.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
     }
 }

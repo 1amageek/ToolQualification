@@ -10,4 +10,18 @@ public struct ToolAsset: Sendable, Hashable, Codable {
         self.kind = kind
         self.sha256 = sha256
     }
+
+    public var isStructurallyValid: Bool {
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        guard let sha256 else {
+            return true
+        }
+        return sha256.utf8.count == 64 && sha256.utf8.allSatisfy { byte in
+            (byte >= 48 && byte <= 57)
+                || (byte >= 65 && byte <= 70)
+                || (byte >= 97 && byte <= 102)
+        }
+    }
 }
