@@ -44,8 +44,8 @@ struct DefaultToolQualificationEngineTests {
         #expect(result.diagnostics.isEmpty)
         #expect(result.artifacts.isEmpty)
         #expect(result.evidence.provenance.producer == producer)
-        #expect(result.evidence.provenance.startedAt == evaluatedAt)
-        #expect(result.evidence.provenance.completedAt == Date(timeIntervalSince1970: 101))
+        #expect(result.evidence.provenance.startedAt.secondsSinceUnixEpoch == 100)
+        #expect(result.evidence.provenance.completedAt.secondsSinceUnixEpoch == 101)
     }
 
     @Test
@@ -149,7 +149,7 @@ struct DefaultToolQualificationEngineTests {
 private struct UnusedArtifactReader: ToolQualificationArtifactReading {
     func verifiedData(for reference: ArtifactReference) async throws -> Data {
         throw ToolProcessQualificationEvidenceBuildError.invalidInput(
-            "Unexpected artifact read for \(reference.id.rawValue)."
+            "Unexpected artifact read for \(reference.id.description)."
         )
     }
 }

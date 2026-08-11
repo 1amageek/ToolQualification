@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import Testing
 
@@ -65,7 +66,7 @@ struct ToolQualificationRecordTests {
     @Test func validatorAcceptsIssuerBoundCanonicalRecord() async throws {
         let fixture = try RecordFixture()
         let record = try await fixture.issue()
-        let reference = try await fixture.store(record: record, producer: fixture.issuer)
+        let reference = try await fixture.store(record: record)
 
         let validated = try await ToolQualificationRecordValidator().validatedRecord(
             referencedBy: reference,
@@ -79,7 +80,7 @@ struct ToolQualificationRecordTests {
     @Test func validatorRejectsMismatchedToolIdentity() async throws {
         let fixture = try RecordFixture()
         let record = try await fixture.issue()
-        let reference = try await fixture.store(record: record, producer: fixture.issuer)
+        let reference = try await fixture.store(record: record)
 
         await #expect(throws: ToolQualificationRecordError.toolIdentityMismatch(
             expected: "other-tool",
@@ -93,19 +94,18 @@ struct ToolQualificationRecordTests {
         }
     }
 
-    @Test func validatorRejectsReferenceIssuedByDifferentProducer() async throws {
+    @Test func validatorPreservesContentBoundIssuer() async throws {
         let fixture = try RecordFixture()
         let record = try await fixture.issue()
-        let other = try ProducerIdentity(kind: .engine, identifier: "other-issuer", version: "1")
-        let reference = try await fixture.store(record: record, producer: other)
+        let reference = try await fixture.store(record: record)
 
-        await #expect(throws: ToolQualificationRecordError.issuerMismatch) {
-            _ = try await ToolQualificationRecordValidator().validatedRecord(
-                referencedBy: reference,
-                expectedToolID: fixture.descriptor.toolID,
-                reading: fixture.reader
-            )
-        }
+        let validated = try await ToolQualificationRecordValidator().validatedRecord(
+            referencedBy: reference,
+            expectedToolID: fixture.descriptor.toolID,
+            reading: fixture.reader
+        )
+
+        #expect(validated.issuer == fixture.issuer)
     }
 
     @Test func canonicalDecoderRejectsUnsupportedSchema() async throws {
@@ -178,23 +178,17 @@ private struct RecordFixture {
         )
     }
 
-    func store(
-        record: ToolQualificationRecord,
-        producer: ProducerIdentity
-    ) async throws -> ArtifactReference {
+    func store(record: ToolQualificationRecord) async throws -> ArtifactReference {
         let data = try record.canonicalData()
         let digest = try SHA256ContentDigester().digest(data: data, using: .sha256)
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "record-artifact"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: "qualification/record.json"),
+        let reference = try ArtifactReference(
+            digest: digest,
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(
                 role: .output,
                 kind: .report,
                 format: .json
-            ),
-            digest: digest,
-            byteCount: UInt64(data.count),
-            producer: producer
+            )
         )
         await reader.insert(data, for: reference)
         return reference

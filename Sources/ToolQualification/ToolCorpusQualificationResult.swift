@@ -49,8 +49,8 @@ public struct ToolCorpusQualificationResult: Sendable, Hashable, Codable {
         self.toolID = toolID
         self.scope = scope
         self.issuer = issuer
-        self.inputArtifacts = inputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
-        self.outputArtifacts = outputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
+        self.inputArtifacts = inputArtifacts.sorted { $0.id.description < $1.id.description }
+        self.outputArtifacts = outputArtifacts.sorted { $0.id.description < $1.id.description }
         self.coverage = coverage
         self.cases = cases.sorted { $0.caseID < $1.caseID }
         self.checkedAt = checkedAt

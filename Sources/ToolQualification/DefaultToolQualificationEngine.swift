@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationFoundation
 import Foundation
 
 public struct DefaultToolQualificationEngine: ToolQualificationEngine {
@@ -44,7 +45,7 @@ public struct DefaultToolQualificationEngine: ToolQualificationEngine {
 
         try Task.checkCancellation()
 
-        return ToolQualificationResult(
+        return try ToolQualificationResult(
             decision: decision,
             artifacts: [],
             diagnostics: diagnostics,

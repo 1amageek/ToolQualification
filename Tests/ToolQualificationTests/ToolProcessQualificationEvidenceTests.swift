@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 
 @testable import ToolQualification
 
@@ -15,13 +17,11 @@ struct ToolProcessQualificationEvidenceTests {
             do { try FileManager.default.removeItem(at: root) }
             catch { Issue.record("Failed to remove fixture: \(error.localizedDescription)") }
         }
-        let toolProducer = try ProducerIdentity(kind: .tool, identifier: "magic-pex", version: "8.3.489")
-        let oracleProducer = try ProducerIdentity(kind: .tool, identifier: "calibre-pex", version: "2026.1")
-        let tool = try artifact("tool", root: root, producer: toolProducer)
+        let tool = try artifact("tool", root: root)
         let process = try artifact("process", root: root)
         let pdk = try artifact("pdk", root: root)
         let deck = try artifact("deck", root: root)
-        let oracleTool = try artifact("oracle-tool", root: root, producer: oracleProducer)
+        let oracleTool = try artifact("oracle-tool", root: root)
         let identity = ToolProcessQualificationArtifacts(
             toolExecutable: tool,
             processProfile: process,
@@ -70,10 +70,13 @@ struct ToolProcessQualificationEvidenceTests {
         #expect(decoded.identityArtifacts == identity)
 
         var mismatchedIdentity = identity
-        mismatchedIdentity.toolExecutable = ArtifactReference(
-            locator: tool.locator,
-            digest: tool.digest,
-            byteCount: tool.byteCount
+        mismatchedIdentity.toolExecutable = try ArtifactReference(
+            digest: ContentDigest(
+                algorithm: .sha256,
+                hexadecimalValue: String(repeating: "0", count: 64)
+            ),
+            byteCount: tool.byteCount,
+            descriptor: tool.descriptor
         )
         let mismatchedProducer = ToolProcessQualificationEvidence(
             qualificationID: evidence.qualificationID,
@@ -108,8 +111,7 @@ struct ToolProcessQualificationEvidenceTests {
 
     private func artifact(
         _ id: String,
-        root: URL,
-        producer: ProducerIdentity? = nil
+        root: URL
     ) throws -> ArtifactReference {
         let path = "qualification/\(id).json"
         let url = root.appendingPathComponent(path)
@@ -122,8 +124,7 @@ struct ToolProcessQualificationEvidenceTests {
                 kind: .evidence,
                 format: .json
             ),
-            relativeTo: root,
-            producer: producer
+            relativeTo: root
         )
     }
 }

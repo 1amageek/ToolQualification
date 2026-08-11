@@ -116,11 +116,11 @@ public enum ToolQualificationCLI {
     ToolTrustEvaluator().evaluate(descriptor:requirement:health:).
 
     USAGE:
-      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path>] [--pretty]
-      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path>] [--pretty]
-      toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
-      toolqualification build-process-evidence --input <path.json> --workspace-root <path> --output <path.json> [--at <unix-seconds>] [--pretty]
-      toolqualification issue-record --input <request.json> --workspace-root <path> --record-path <relative-path> --reference-output <path.json> [--pretty]
+      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path> --availability-inventory <path.json>] [--pretty]
+      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path> --availability-inventory <path.json>] [--pretty]
+      toolqualification validate-process-evidence --evidence <path.json> --workspace-root <path> --availability-inventory <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
+      toolqualification build-process-evidence --input <path.json> --workspace-root <path> --availability-inventory <path.json> --output <path.json> [--at <unix-seconds>] [--pretty]
+      toolqualification issue-record --input <request.json> --workspace-root <path> --availability-inventory <path.json> --record-path <relative-path> --reference-output <path.json> [--pretty]
       toolqualification <command> --help
 
     COMMANDS:
@@ -150,11 +150,13 @@ public enum ToolQualificationCLI {
     ArtifactReference. Engine observation exports are not accepted as records.
 
     USAGE:
-      toolqualification issue-record --input <request.json> --workspace-root <path> --record-path <workspace-relative-path> --reference-output <path.json> [--pretty]
+      toolqualification issue-record --input <request.json> --workspace-root <path> --availability-inventory <path.json> --record-path <workspace-relative-path> --reference-output <path.json> [--pretty]
 
     OPTIONS:
       --input <request.json>       ToolQualificationRecordIssuanceRequest JSON (required)
       --workspace-root <path>      Root used to resolve and verify retained artifacts (required)
+      --availability-inventory <path.json>
+                                   Explicit root ID, access budget, and artifact availability (required)
       --record-path <path>         Workspace-relative canonical record path (required)
       --reference-output <path>    ArtifactReference JSON output path (required)
       --pretty                     Pretty-print the reference and stdout envelope
@@ -169,13 +171,16 @@ public enum ToolQualificationCLI {
     OVERVIEW: Evaluate one ToolDescriptor against a ToolTrustRequirement.
 
     USAGE:
-      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path>] [--pretty]
+      toolqualification evaluate --descriptor <path.json> --requirement <path.json> [--health <path.json>] [--workspace-root <path> --availability-inventory <path.json>] [--pretty]
 
     OPTIONS:
       --descriptor <path.json>   ToolDescriptor JSON file (required)
       --requirement <path.json>  ToolTrustRequirement JSON file (required)
       --health <path.json>       ToolHealthCheckResult JSON file (optional)
       --workspace-root <path>    Resolve and verify retained qualification artifacts
+      --availability-inventory <path.json>
+                                 Explicit root ID, access budget, and artifact availability;
+                                 required whenever --workspace-root is present
       --pretty                   Pretty-print the stdout JSON envelope
 
     OUTPUT (stdout, JSON):
@@ -193,13 +198,16 @@ public enum ToolQualificationCLI {
     orders stage tools.
 
     USAGE:
-      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path>] [--pretty]
+      toolqualification evaluate-registry --descriptors <path.json> --requirement <path.json> [--health-results <path.json>] [--workspace-root <path> --availability-inventory <path.json>] [--pretty]
 
     OPTIONS:
       --descriptors <path.json>     JSON array of ToolDescriptor (required)
       --requirement <path.json>     ToolTrustRequirement JSON file (required)
       --health-results <path.json>  JSON dictionary toolID -> ToolHealthCheckResult (optional)
       --workspace-root <path>       Resolve and verify retained qualification artifacts
+      --availability-inventory <path.json>
+                                    Explicit root ID, access budget, and artifact availability;
+                                    required whenever --workspace-root is present
       --pretty                      Pretty-print the stdout JSON envelope
 
     OUTPUT (stdout, JSON):
@@ -218,10 +226,13 @@ public enum ToolQualificationCLI {
     OVERVIEW: Validate a persisted ToolProcessQualificationEvidence record.
 
     USAGE:
-      toolqualification validate-process-evidence --evidence <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
+      toolqualification validate-process-evidence --evidence <path.json> --workspace-root <path> --availability-inventory <path.json> [--require-pdk] [--at <unix-seconds>] [--pretty]
 
     OPTIONS:
       --evidence <path.json>  Process qualification evidence JSON (required)
+      --workspace-root <path> Root used to resolve and verify retained artifacts (required)
+      --availability-inventory <path.json>
+                              Explicit root ID, access budget, and artifact availability (required)
       --require-pdk           Require a complete PDK ID and PDK digest in scope
       --at <unix-seconds>     Evaluate freshness at this Unix timestamp; defaults to now
       --pretty                Pretty-print the stdout JSON envelope
@@ -237,12 +248,14 @@ public enum ToolQualificationCLI {
     artifact-backed qualification evidence.
 
     USAGE:
-      toolqualification build-process-evidence --input <build-request.json> --output <evidence.json> [--at <unix-seconds>] [--pretty]
+      toolqualification build-process-evidence --input <build-request.json> --workspace-root <path> --availability-inventory <path.json> --output <evidence.json> [--at <unix-seconds>] [--pretty]
 
     OPTIONS:
       --input <build-request.json>  Build request containing scoped corpus,
                                     oracle, health and production-approval evidence (required)
       --workspace-root <path> Workspace root used to verify every retained artifact (required)
+      --availability-inventory <path.json>
+                              Explicit root ID, access budget, and artifact availability (required)
       --output <evidence.json>      Qualified process record output path (required)
       --at <unix-seconds>           Require the validity window to contain this time; defaults to now
       --pretty                      Pretty-print the stdout JSON envelope and output record

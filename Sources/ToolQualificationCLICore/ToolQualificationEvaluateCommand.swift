@@ -14,6 +14,7 @@ public struct ToolQualificationEvaluateCommand: Sendable {
         public var requirementPath: String
         public var healthPath: String?
         public var workspaceRootPath: String?
+        public var availabilityInventoryPath: String?
         public var pretty: Bool
 
         public init(arguments: [String]) throws {
@@ -21,6 +22,7 @@ public struct ToolQualificationEvaluateCommand: Sendable {
             var requirementPath: String?
             var healthPath: String?
             var workspaceRootPath: String?
+            var availabilityInventoryPath: String?
             var pretty = false
             var cursor = ToolQualificationCLIArgumentCursor(arguments: arguments)
             while let argument = cursor.next() {
@@ -33,6 +35,8 @@ public struct ToolQualificationEvaluateCommand: Sendable {
                     healthPath = try cursor.requireValue(for: argument)
                 case "--workspace-root":
                     workspaceRootPath = try cursor.requireValue(for: argument)
+                case "--availability-inventory":
+                    availabilityInventoryPath = try cursor.requireValue(for: argument)
                 case "--pretty":
                     pretty = true
                 default:
@@ -51,10 +55,16 @@ public struct ToolQualificationEvaluateCommand: Sendable {
                     "Missing required argument: --requirement"
                 )
             }
+            guard (workspaceRootPath == nil) == (availabilityInventoryPath == nil) else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "--workspace-root and --availability-inventory must be provided together"
+                )
+            }
             self.descriptorPath = descriptorPath
             self.requirementPath = requirementPath
             self.healthPath = healthPath
             self.workspaceRootPath = workspaceRootPath
+            self.availabilityInventoryPath = availabilityInventoryPath
             self.pretty = pretty
         }
     }
@@ -80,21 +90,29 @@ public struct ToolQualificationEvaluateCommand: Sendable {
             health = nil
         }
 
-        let artifactReader: (any ToolQualificationArtifactReading)?
-        if let workspaceRootPath = options.workspaceRootPath {
-            artifactReader = LocalToolQualificationArtifactReader(
-                workspaceRoot: URL(filePath: workspaceRootPath)
+        let evaluator = ToolTrustEvaluator()
+        let decision: ToolTrustDecision
+        if let workspaceRootPath = options.workspaceRootPath,
+           let availabilityInventoryPath = options.availabilityInventoryPath {
+            let context = try ToolQualificationCLIArtifactContext(
+                workspaceRootPath: workspaceRootPath,
+                availabilityInventoryPath: availabilityInventoryPath
             )
+            decision = try await context.withReader { reader in
+                await evaluator.evaluate(
+                    descriptor: descriptor,
+                    requirement: requirement,
+                    health: health,
+                    artifactReader: reader
+                )
+            }
         } else {
-            artifactReader = nil
+            decision = await evaluator.evaluate(
+                descriptor: descriptor,
+                requirement: requirement,
+                health: health
+            )
         }
-
-        let decision = await ToolTrustEvaluator().evaluate(
-            descriptor: descriptor,
-            requirement: requirement,
-            health: health,
-            artifactReader: artifactReader
-        )
         let envelope = ToolQualificationEvaluateEnvelope(
             command: "evaluate",
             toolID: descriptor.toolID,
@@ -113,7 +131,8 @@ public struct ToolQualificationEvaluateCommand: Sendable {
                 healthPath: options.healthPath,
                 healthToolID: health?.toolID,
                 healthStatus: health?.status,
-                workspaceRootPath: options.workspaceRootPath
+                workspaceRootPath: options.workspaceRootPath,
+                availabilityInventoryPath: options.availabilityInventoryPath
             )
         )
         let output = try ToolQualificationCLIJSONCoding.encode(envelope, pretty: options.pretty)

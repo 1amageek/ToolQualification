@@ -14,11 +14,14 @@ struct ToolQualificationIssueRecordCLITests {
         let inputURL = directory.appending(path: "issuance-request.json")
         let referenceURL = directory.appending(path: "outputs/record-reference.json")
         try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
+        let artifactFixture = try ToolQualificationCLIArtifactFixture()
+        let inventoryURL = try artifactFixture.writeInventory(root: directory, artifacts: [])
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "issue-record",
             "--input", inputURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path,
             "--record-path", "qualification/runtime-record.json",
             "--reference-output", referenceURL.path,
             "--pretty",
@@ -31,14 +34,30 @@ struct ToolQualificationIssueRecordCLITests {
             ArtifactReference.self,
             from: Data(contentsOf: referenceURL)
         )
-        #expect(record.recordID == request.recordID)
-        #expect(reference.producer == request.issuer)
-        #expect(reference.locator.location.value == "qualification/runtime-record.json")
-        let validated = try await ToolQualificationRecordValidator().validatedRecord(
-            referencedBy: reference,
-            expectedToolID: request.descriptor.toolID,
-            reading: LocalToolQualificationArtifactReader(workspaceRoot: directory)
+        let envelope = try JSONDecoder().decode(
+            ToolQualificationIssueRecordEnvelope.self,
+            from: Data(result.standardOutput.utf8)
         )
+        #expect(record.recordID == request.recordID)
+        #expect(record.issuer == request.issuer)
+        #expect(envelope.recordReference == reference)
+        #expect(envelope.recordAvailability == .local(
+            artifactID: reference.id,
+            rootID: artifactFixture.rootID,
+            relativePath: try ArtifactRelativePath(
+                segments: ["qualification", "runtime-record.json"]
+            )
+        ))
+        let validated = try await artifactFixture.withReader(
+            root: directory,
+            availabilities: [envelope.recordAvailability]
+        ) { reader in
+            try await ToolQualificationRecordValidator().validatedRecord(
+                referencedBy: reference,
+                expectedToolID: request.descriptor.toolID,
+                reading: reader
+            )
+        }
         #expect(validated == record)
     }
 
@@ -49,11 +68,14 @@ struct ToolQualificationIssueRecordCLITests {
         let request = try makeRequest(healthStatus: .failed)
         let inputURL = directory.appending(path: "issuance-request.json")
         try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
+        let inventoryURL = try ToolQualificationCLIArtifactFixture()
+            .writeInventory(root: directory, artifacts: [])
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "issue-record",
             "--input", inputURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path,
             "--record-path", "qualification/rejected-record.json",
             "--reference-output", directory.appending(path: "rejected-reference.json").path,
         ])
@@ -72,11 +94,14 @@ struct ToolQualificationIssueRecordCLITests {
         let inputURL = directory.appending(path: "issuance-request.json")
         try JSONEncoder().encode(try makeRequest(healthStatus: .passed))
             .write(to: inputURL, options: .atomic)
+        let inventoryURL = try ToolQualificationCLIArtifactFixture()
+            .writeInventory(root: directory, artifacts: [])
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "issue-record",
             "--input", inputURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path,
             "--record-path", "../escaped-record.json",
             "--reference-output", directory.appending(path: "reference.json").path,
         ])

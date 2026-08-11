@@ -1,4 +1,6 @@
 import CircuiteFoundation
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 import Foundation
 import ToolQualification
 
@@ -6,6 +8,7 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
     public struct Options: Sendable, Equatable {
         public let inputPath: String
         public let workspaceRoot: String
+        public let availabilityInventoryPath: String
         public let recordPath: String
         public let referenceOutputPath: String
         public let pretty: Bool
@@ -13,6 +16,7 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
         public init(arguments: [String]) throws {
             var inputPath: String?
             var workspaceRoot: String?
+            var availabilityInventoryPath: String?
             var recordPath: String?
             var referenceOutputPath: String?
             var pretty = false
@@ -23,6 +27,8 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
                     inputPath = try cursor.requireValue(for: argument)
                 case "--workspace-root":
                     workspaceRoot = try cursor.requireValue(for: argument)
+                case "--availability-inventory":
+                    availabilityInventoryPath = try cursor.requireValue(for: argument)
                 case "--record-path":
                     recordPath = try cursor.requireValue(for: argument)
                 case "--reference-output":
@@ -41,6 +47,11 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
             guard let workspaceRoot else {
                 throw ToolQualificationCLIError.invalidArguments("Missing required argument: --workspace-root")
             }
+            guard let availabilityInventoryPath else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "Missing required argument: --availability-inventory"
+                )
+            }
             guard let recordPath else {
                 throw ToolQualificationCLIError.invalidArguments("Missing required argument: --record-path")
             }
@@ -49,6 +60,7 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
             }
             self.inputPath = inputPath
             self.workspaceRoot = workspaceRoot
+            self.availabilityInventoryPath = availabilityInventoryPath
             self.recordPath = recordPath
             self.referenceOutputPath = referenceOutputPath
             self.pretty = pretty
@@ -64,8 +76,15 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
         )
         let workspaceRoot = URL(filePath: options.workspaceRoot).standardizedFileURL
         let location: ArtifactLocation
+        let relativePath: ArtifactRelativePath
         do {
             location = try ArtifactLocation(workspaceRelativePath: options.recordPath)
+            relativePath = try ArtifactRelativePath(
+                segments: options.recordPath.split(
+                    separator: "/",
+                    omittingEmptySubsequences: false
+                ).map(String.init)
+            )
         } catch {
             throw ToolQualificationCLIError.invalidArguments(
                 "--record-path must be a valid workspace-relative path: \(error.localizedDescription)"
@@ -80,16 +99,22 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
             )
         }
 
+        let context = try ToolQualificationCLIArtifactContext(
+            workspaceRootPath: options.workspaceRoot,
+            availabilityInventoryPath: options.availabilityInventoryPath
+        )
         let record: ToolQualificationRecord
         do {
-            record = try await DefaultToolQualificationRecordIssuer().issue(
-                recordID: request.recordID,
-                descriptor: request.descriptor,
-                health: request.health,
-                issuer: request.issuer,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: workspaceRoot),
-                issuedAt: request.issuedAt
-            )
+            record = try await context.withReader { reader in
+                try await DefaultToolQualificationRecordIssuer().issue(
+                    recordID: request.recordID,
+                    descriptor: request.descriptor,
+                    health: request.health,
+                    issuer: request.issuer,
+                    reading: reader,
+                    issuedAt: request.issuedAt
+                )
+            }
         } catch let error as ToolQualificationRecordError {
             return ToolQualificationCLIInvocationResult(
                 exitCode: 2,
@@ -123,8 +148,7 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
                     kind: .evidence,
                     format: .json
                 ),
-                relativeTo: workspaceRoot,
-                producer: request.issuer
+                relativeTo: workspaceRoot
             )
             let referenceJSON = try ToolQualificationCLIJSONCoding.encode(
                 reference,
@@ -148,12 +172,19 @@ public struct ToolQualificationIssueRecordCommand: Sendable {
             )
         }
 
+        let availability = ArtifactAvailability.local(
+            artifactID: reference.id,
+            rootID: context.inventory.rootID,
+            relativePath: relativePath
+        )
+
         let envelope = ToolQualificationIssueRecordEnvelope(
             recordID: record.recordID,
             toolID: record.descriptor.toolID,
             recordPath: options.recordPath,
             referencePath: options.referenceOutputPath,
-            recordReference: reference
+            recordReference: reference,
+            recordAvailability: availability
         )
         return ToolQualificationCLIInvocationResult(
             exitCode: 0,

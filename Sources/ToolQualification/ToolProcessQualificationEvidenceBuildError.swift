@@ -9,6 +9,9 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
     case evidenceArtifactMissing(String)
     case invalidArtifact(String)
     case duplicateArtifact(String)
+    case artifactAvailabilityMissing(String)
+    case artifactAccessFailed(String)
+    case artifactCloseFailed(String)
     case artifactIntegrityFailed(String)
     case invalidValidityWindow
     case notValidAt
@@ -31,6 +34,12 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
             return "evidence artifact is invalid: \(message)"
         case .duplicateArtifact(let artifactID):
             return "evidence artifact \(artifactID) is duplicated"
+        case .artifactAvailabilityMissing(let artifactID):
+            return "artifact availability is missing for \(artifactID)"
+        case .artifactAccessFailed(let message):
+            return "process qualification artifact access failed: \(message)"
+        case .artifactCloseFailed(let message):
+            return "process qualification artifact close failed: \(message)"
         case .artifactIntegrityFailed(let message):
             return "process qualification artifact integrity failed: \(message)"
         case .invalidValidityWindow:

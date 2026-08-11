@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import Testing
 import ToolQualification
@@ -259,17 +260,14 @@ private struct SmokeQualificationFixture {
     }
 
     private func artifact(id: String, data: Data) throws -> ArtifactReference {
-        ArtifactReference(
-            id: try ArtifactID(rawValue: id),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: "qualification/\(id).json"),
+        try ArtifactReference(
+            digest: SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(
                 role: .output,
                 kind: .report,
                 format: .json
-            ),
-            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
-            byteCount: UInt64(data.count),
-            producer: issuer
+            )
         )
     }
 }
@@ -284,7 +282,7 @@ private actor RegistryQualificationArtifactReader: ToolQualificationArtifactRead
     func verifiedData(for reference: ArtifactReference) async throws -> Data {
         guard let data = dataByReference[reference] else {
             throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
-                reference.id.rawValue
+                reference.id.description
             )
         }
         return data

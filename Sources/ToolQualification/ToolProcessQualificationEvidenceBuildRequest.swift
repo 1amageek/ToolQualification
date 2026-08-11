@@ -158,6 +158,6 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
 
     public var evidenceArtifacts: [ArtifactReference] {
         (corpusResultArtifacts + oracleResultArtifacts + healthResultArtifacts)
-            .sorted { $0.id.rawValue < $1.id.rawValue }
+            .sorted { $0.id.description < $1.id.description }
     }
 }

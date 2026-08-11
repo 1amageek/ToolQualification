@@ -56,9 +56,9 @@ public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
         self.oracleToolID = oracleToolID
         self.scope = scope
         self.issuer = issuer
-        self.inputArtifacts = inputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
-        self.primaryOutputArtifacts = primaryOutputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
-        self.oracleOutputArtifacts = oracleOutputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
+        self.inputArtifacts = inputArtifacts.sorted { $0.id.description < $1.id.description }
+        self.primaryOutputArtifacts = primaryOutputArtifacts.sorted { $0.id.description < $1.id.description }
+        self.oracleOutputArtifacts = oracleOutputArtifacts.sorted { $0.id.description < $1.id.description }
         self.coverage = coverage
         self.cases = cases.sorted { $0.caseID < $1.caseID }
         self.checkedAt = checkedAt

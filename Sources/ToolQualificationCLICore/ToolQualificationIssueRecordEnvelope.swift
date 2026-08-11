@@ -8,13 +8,15 @@ public struct ToolQualificationIssueRecordEnvelope: Sendable, Hashable, Codable 
     public let recordPath: String
     public let referencePath: String
     public let recordReference: ArtifactReference
+    public let recordAvailability: ArtifactAvailability
 
     public init(
         recordID: String,
         toolID: String,
         recordPath: String,
         referencePath: String,
-        recordReference: ArtifactReference
+        recordReference: ArtifactReference,
+        recordAvailability: ArtifactAvailability
     ) {
         command = "issue-record"
         self.recordID = recordID
@@ -22,5 +24,6 @@ public struct ToolQualificationIssueRecordEnvelope: Sendable, Hashable, Codable 
         self.recordPath = recordPath
         self.referencePath = referencePath
         self.recordReference = recordReference
+        self.recordAvailability = recordAvailability
     }
 }

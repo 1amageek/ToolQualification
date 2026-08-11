@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 import ToolQualification
 import ToolQualificationCLICore
 
@@ -12,6 +14,8 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         defer { remove(directory) }
         let now = Date(timeIntervalSince1970: 1_000)
         let request = try makeRequest(now: now, root: directory, independent: true)
+        let inventoryURL = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory)
         let inputURL = directory.appending(path: "build-request.json")
         let outputURL = directory.appending(path: "process-evidence.json")
         let encoder = JSONEncoder()
@@ -23,6 +27,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             "--input", inputURL.path,
             "--output", outputURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path,
             "--at", "1000",
             "--pretty",
         ])
@@ -42,6 +47,8 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         defer { remove(directory) }
         let now = Date(timeIntervalSince1970: 1_000)
         let request = try makeRequest(now: now, root: directory, independent: false)
+        let inventoryURL = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory)
         let inputURL = directory.appending(path: "build-request.json")
         let outputURL = directory.appending(path: "process-evidence.json")
         try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
@@ -51,6 +58,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             "--input", inputURL.path,
             "--output", outputURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path,
             "--at", "1000",
         ])
 
@@ -64,6 +72,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         let result = await ToolQualificationCLI.invoke(arguments: ["build-process-evidence", "--help"])
         #expect(result.exitCode == 0)
         #expect(result.standardOutput.contains("--workspace-root"))
+        #expect(result.standardOutput.contains("--availability-inventory"))
         #expect(result.standardOutput.contains("independent"))
     }
 
@@ -84,14 +93,12 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         root: URL,
         independent: Bool
     ) throws -> ToolProcessQualificationEvidenceBuildRequest {
-        let toolProducer = try ProducerIdentity(kind: .tool, identifier: "qualified-scan", version: "1.0.0")
         let oracleID = "independent-scan-oracle"
-        let oracleProducer = try ProducerIdentity(kind: .tool, identifier: oracleID, version: "2.0.0")
-        let tool = try artifact("tool", root: root, producer: toolProducer)
+        let tool = try artifact("tool", root: root)
         let process = try artifact("process", root: root)
         let pdk = try artifact("pdk", root: root)
         let deck = try artifact("deck", root: root)
-        let oracleTool = try artifact("oracle-tool", root: root, producer: oracleProducer)
+        let oracleTool = try artifact("oracle-tool", root: root)
         let identity = ToolProcessQualificationArtifacts(
             toolExecutable: tool,
             processProfile: process,
@@ -144,8 +151,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                     )]
                 )],
                 checkedAt: now
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         let oracle = try artifact(
             "oracle",
@@ -179,8 +185,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                     )]
                 )],
                 checkedAt: now
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         let health = try artifact(
             "health",
@@ -194,8 +199,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 inputArtifacts: [input],
                 outputArtifacts: [output],
                 checkedAt: now
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         var request = ToolProcessQualificationEvidenceBuildRequest(
             qualificationID: "qualification-1",
@@ -224,8 +228,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
     private func artifact(
         _ name: String,
         root: URL,
-        data: Data? = nil,
-        producer: ProducerIdentity? = nil
+        data: Data? = nil
     ) throws -> ArtifactReference {
         let path = "qualification/\(name).json"
         let url = root.appendingPathComponent(path)
@@ -240,8 +243,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 kind: .evidence,
                 format: .json
             ),
-            relativeTo: root,
-            producer: producer
+            relativeTo: root
         )
     }
 }

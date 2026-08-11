@@ -6,6 +6,7 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
         public var inputPath: String
         public var outputPath: String
         public var workspaceRoot: String
+        public var availabilityInventoryPath: String
         public var evaluatedAt: Date
         public var pretty: Bool
 
@@ -13,6 +14,7 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
             var inputPath: String?
             var outputPath: String?
             var workspaceRoot: String?
+            var availabilityInventoryPath: String?
             var evaluatedAt = now
             var pretty = false
             var cursor = ToolQualificationCLIArgumentCursor(arguments: arguments)
@@ -24,6 +26,8 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                     outputPath = try cursor.requireValue(for: argument)
                 case "--workspace-root":
                     workspaceRoot = try cursor.requireValue(for: argument)
+                case "--availability-inventory":
+                    availabilityInventoryPath = try cursor.requireValue(for: argument)
                 case "--at":
                     let value = try cursor.requireValue(for: argument)
                     guard let seconds = Double(value), seconds.isFinite else {
@@ -55,9 +59,15 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
                     "Missing required argument: --workspace-root"
                 )
             }
+            guard let availabilityInventoryPath else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "Missing required argument: --availability-inventory"
+                )
+            }
             self.inputPath = inputPath
             self.outputPath = outputPath
             self.workspaceRoot = workspaceRoot
+            self.availabilityInventoryPath = availabilityInventoryPath
             self.evaluatedAt = evaluatedAt
             self.pretty = pretty
         }
@@ -70,71 +80,74 @@ public struct ToolQualificationBuildProcessEvidenceCommand: Sendable {
             ToolProcessQualificationEvidenceBuildRequest.self,
             atPath: options.inputPath
         )
-        do {
-            let reader = LocalToolQualificationArtifactReader(
-                workspaceRoot: URL(filePath: options.workspaceRoot)
-            )
-            let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
-                request,
-                reading: reader,
-                at: options.evaluatedAt
-            )
-            let encoded = try ToolQualificationCLIJSONCoding.encode(
-                evidence,
-                pretty: options.pretty
-            )
+        let context = try ToolQualificationCLIArtifactContext(
+            workspaceRootPath: options.workspaceRoot,
+            availabilityInventoryPath: options.availabilityInventoryPath
+        )
+        return try await context.withReader { reader in
             do {
-                try Data(encoded.utf8).write(
-                    to: URL(filePath: options.outputPath),
-                    options: .atomic
+                let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+                    request,
+                    reading: reader,
+                    at: options.evaluatedAt
                 )
-            } catch {
-                throw ToolQualificationCLIError.unwritableFile(
-                    path: options.outputPath,
-                    reason: error.localizedDescription
+                let encoded = try ToolQualificationCLIJSONCoding.encode(
+                    evidence,
+                    pretty: options.pretty
+                )
+                do {
+                    try Data(encoded.utf8).write(
+                        to: URL(filePath: options.outputPath),
+                        options: .atomic
+                    )
+                } catch {
+                    throw ToolQualificationCLIError.unwritableFile(
+                        path: options.outputPath,
+                        reason: error.localizedDescription
+                    )
+                }
+                let envelope = ToolQualificationBuildProcessEvidenceEnvelope(
+                    inputPath: options.inputPath,
+                    outputPath: options.outputPath,
+                    qualificationID: evidence.qualificationID,
+                    toolID: evidence.toolID,
+                    status: evidence.status,
+                    qualified: evidence.isQualified(at: options.evaluatedAt, requirePDKScope: true),
+                    scope: evidence.scope,
+                    evidenceArtifactIDs: evidence.evidenceArtifactIDs,
+                    diagnostics: []
+                )
+                return ToolQualificationCLIInvocationResult(
+                    exitCode: 0,
+                    standardOutput: try ToolQualificationCLIJSONCoding.encode(
+                        envelope,
+                        pretty: options.pretty
+                    ) + "\n",
+                    standardError: ""
+                )
+            } catch let error as ToolProcessQualificationEvidenceBuildError {
+                let envelope = ToolQualificationBuildProcessEvidenceEnvelope(
+                    inputPath: options.inputPath,
+                    outputPath: nil,
+                    qualificationID: request.qualificationID,
+                    toolID: request.toolID,
+                    status: .blocked,
+                    qualified: false,
+                    scope: request.scope,
+                    evidenceArtifactIDs: request.evidenceArtifacts.map {
+                        $0.id.description
+                    }.sorted(),
+                    diagnostics: [error.localizedDescription]
+                )
+                return ToolQualificationCLIInvocationResult(
+                    exitCode: 2,
+                    standardOutput: try ToolQualificationCLIJSONCoding.encode(
+                        envelope,
+                        pretty: options.pretty
+                    ) + "\n",
+                    standardError: ""
                 )
             }
-            let envelope = ToolQualificationBuildProcessEvidenceEnvelope(
-                inputPath: options.inputPath,
-                outputPath: options.outputPath,
-                qualificationID: evidence.qualificationID,
-                toolID: evidence.toolID,
-                status: evidence.status,
-                qualified: evidence.isQualified(at: options.evaluatedAt, requirePDKScope: true),
-                scope: evidence.scope,
-                evidenceArtifactIDs: evidence.evidenceArtifactIDs,
-                diagnostics: []
-            )
-            return ToolQualificationCLIInvocationResult(
-                exitCode: 0,
-                standardOutput: try ToolQualificationCLIJSONCoding.encode(
-                    envelope,
-                    pretty: options.pretty
-                ) + "\n",
-                standardError: ""
-            )
-        } catch let error as ToolProcessQualificationEvidenceBuildError {
-            let envelope = ToolQualificationBuildProcessEvidenceEnvelope(
-                inputPath: options.inputPath,
-                outputPath: nil,
-                qualificationID: request.qualificationID,
-                toolID: request.toolID,
-                status: .blocked,
-                qualified: false,
-                scope: request.scope,
-                evidenceArtifactIDs: request.evidenceArtifacts.map {
-                    $0.id.rawValue
-                }.sorted(),
-                diagnostics: [error.localizedDescription]
-            )
-            return ToolQualificationCLIInvocationResult(
-                exitCode: 2,
-                standardOutput: try ToolQualificationCLIJSONCoding.encode(
-                    envelope,
-                    pretty: options.pretty
-                ) + "\n",
-                standardError: ""
-            )
         }
     }
 }

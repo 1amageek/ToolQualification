@@ -3,6 +3,9 @@ import Testing
 import ToolQualification
 import ToolQualificationCLICore
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 
 @Suite("ToolQualificationCLITests")
 struct ToolQualificationCLITests {
@@ -22,27 +25,23 @@ struct ToolQualificationCLITests {
         return url.path
     }
 
-    private func evidenceJSON(toolID: String, kind: String) -> String {
-        """
-        {
-          "evidenceID": "\(toolID)-\(kind)",
-          "kind": "\(kind)",
-          "artifact": {
-            "id": "\(toolID)-\(kind)-artifact",
-            "locator": {
-              "location": { "storage": "workspaceRelative", "value": "qualification/\(toolID)-\(kind).json" },
-              "role": "output",
-              "kind": "evidence",
-              "format": "json"
-            },
-            "digest": {
-              "algorithm": "sha256",
-              "hexadecimalValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            "byteCount": 1
-          }
-        }
-        """
+    private func evidenceJSON(toolID: String, kind: String) throws -> String {
+        let data = Data("\(toolID)-\(kind)-artifact".utf8)
+        let artifact = try ArtifactReference(
+            digest: SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(
+                role: .output,
+                kind: .evidence,
+                format: .json
+            )
+        )
+        let evidence = ToolEvidence(
+            evidenceID: "\(toolID)-\(kind)",
+            kind: ToolEvidenceKind(rawValue: kind) ?? .healthCheck,
+            artifact: artifact
+        )
+        return String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
     }
 
     private func descriptorJSON(
@@ -51,9 +50,9 @@ struct ToolQualificationCLITests {
         level: String = "smokeChecked",
         operationID: String = "simulate.transient",
         evidenceKinds: [String] = ["smoke"]
-    ) -> String {
-        let evidence = evidenceKinds
-            .map { evidenceJSON(toolID: toolID, kind: $0) }
+    ) throws -> String {
+        let evidence = try evidenceKinds
+            .map { try evidenceJSON(toolID: toolID, kind: $0) }
             .joined(separator: ",\n")
         return """
         {
@@ -99,11 +98,11 @@ struct ToolQualificationCLITests {
         )
         let input = try writeQualificationArtifact(
             Data("input".utf8), named: "\(toolID)-input.json", role: .input,
-            producer: issuer, workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot
         )
         let output = try writeQualificationArtifact(
             Data("output".utf8), named: "\(toolID)-output.json", role: .output,
-            producer: issuer, workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot
         )
         let checkedAt = Date(timeIntervalSince1970: 1_000)
         let result = ToolSmokeQualificationResult(
@@ -117,7 +116,7 @@ struct ToolQualificationCLITests {
         )
         let resultReference = try writeQualificationArtifact(
             result.canonicalData(), named: "\(toolID)-smoke.json", role: .output,
-            producer: issuer, workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot
         )
         let descriptor = ToolDescriptor(
             toolID: toolID,
@@ -147,7 +146,6 @@ struct ToolQualificationCLITests {
         _ data: Data,
         named name: String,
         role: ArtifactRole,
-        producer: ProducerIdentity,
         workspaceRoot: URL
     ) throws -> ArtifactReference {
         let relativePath = "qualification/\(name)"
@@ -162,8 +160,7 @@ struct ToolQualificationCLITests {
                 kind: .report,
                 format: .json
             ),
-            relativeTo: workspaceRoot,
-            producer: producer
+            relativeTo: workspaceRoot
         )
     }
 
@@ -229,12 +226,15 @@ struct ToolQualificationCLITests {
             named: "requirement.json",
             in: directory
         )
+        let inventoryPath = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory).path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
             "--descriptor", descriptorPath,
             "--requirement", requirementPath,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
         ])
 
         #expect(result.exitCode == 0)
@@ -267,6 +267,8 @@ struct ToolQualificationCLITests {
             named: "health.json",
             in: directory
         )
+        let inventoryPath = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory).path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate",
@@ -274,6 +276,7 @@ struct ToolQualificationCLITests {
             "--requirement", requirementPath,
             "--health", healthPath,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
         ])
 
         #expect(result.exitCode == 0)
@@ -286,7 +289,7 @@ struct ToolQualificationCLITests {
     @Test func evaluateRejectedToolExitsTwo() async throws {
         let directory = try makeTemporaryDirectory()
         let descriptorPath = try write(
-            descriptorJSON(toolID: "sim.corespice", level: "smokeChecked"),
+            try descriptorJSON(toolID: "sim.corespice", level: "smokeChecked"),
             named: "descriptor.json",
             in: directory
         )
@@ -317,8 +320,8 @@ struct ToolQualificationCLITests {
             """
             [
               \(try smokeQualifiedDescriptorJSON(toolID: "b.tool", in: directory)),
-              \(descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"])),
-              \(descriptorJSON(toolID: "r.mismatch", kind: "layout", level: "unknown", evidenceKinds: [])),
+              \(try descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"])),
+              \(try descriptorJSON(toolID: "r.mismatch", kind: "layout", level: "unknown", evidenceKinds: [])),
               \(try smokeQualifiedDescriptorJSON(toolID: "a.tool", in: directory))
             ]
             """,
@@ -330,12 +333,15 @@ struct ToolQualificationCLITests {
             named: "requirement.json",
             in: directory
         )
+        let inventoryPath = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory).path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate-registry",
             "--descriptors", descriptorsPath,
             "--requirement", requirementPath,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
         ])
 
         #expect(result.exitCode == 0)
@@ -358,8 +364,8 @@ struct ToolQualificationCLITests {
             """
             [
               \(try smokeQualifiedDescriptorJSON(toolID: "a.tool", in: directory)),
-              \(descriptorJSON(toolID: "b.tool")),
-              \(descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"]))
+              \(try descriptorJSON(toolID: "b.tool")),
+              \(try descriptorJSON(toolID: "z.high", level: "oracleChecked", evidenceKinds: ["smoke", "corpus", "oracle"]))
             ]
             """,
             named: "descriptors.json",
@@ -379,6 +385,8 @@ struct ToolQualificationCLITests {
             named: "health-results.json",
             in: directory
         )
+        let inventoryPath = try ToolQualificationCLIArtifactFixture()
+            .writeQualificationDirectoryInventory(root: directory).path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "evaluate-registry",
@@ -386,6 +394,7 @@ struct ToolQualificationCLITests {
             "--requirement", requirementPath,
             "--health-results", healthResultsPath,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
         ])
 
         #expect(result.exitCode == 0)
@@ -402,8 +411,8 @@ struct ToolQualificationCLITests {
         let descriptorsPath = try write(
             """
             [
-              \(descriptorJSON(toolID: "a.tool")),
-              \(descriptorJSON(toolID: "b.tool"))
+              \(try descriptorJSON(toolID: "a.tool")),
+              \(try descriptorJSON(toolID: "b.tool"))
             ]
             """,
             named: "descriptors.json",
@@ -436,11 +445,13 @@ struct ToolQualificationCLITests {
         let evidenceURL = directory.appendingPathComponent("process-evidence.json")
         let encoder = JSONEncoder()
         try encoder.encode(evidence).write(to: evidenceURL, options: .atomic)
+        let inventoryPath = directory.appending(path: "artifact-availability.json").path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "validate-process-evidence",
             "--evidence", evidenceURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
             "--require-pdk",
             "--at", "150",
         ])
@@ -462,11 +473,13 @@ struct ToolQualificationCLITests {
         let evidenceURL = directory.appendingPathComponent("process-evidence.json")
         let encoder = JSONEncoder()
         try encoder.encode(evidence).write(to: evidenceURL, options: .atomic)
+        let inventoryPath = directory.appending(path: "artifact-availability.json").path
 
         let result = await ToolQualificationCLI.invoke(arguments: [
             "validate-process-evidence",
             "--evidence", evidenceURL.path,
             "--workspace-root", directory.path,
+            "--availability-inventory", inventoryPath,
             "--require-pdk",
             "--at", "150",
         ])
@@ -480,17 +493,45 @@ struct ToolQualificationCLITests {
         #expect(envelope.diagnostics.contains("process-evidence-pdk-scope-incomplete"))
     }
 
+    @Test func validateProcessEvidenceReportsRetainedArtifactTamper() async throws {
+        let directory = try makeTemporaryDirectory()
+        let evidence = try await makeValidationEvidence(in: directory, includePDK: true)
+        let evidenceURL = directory.appendingPathComponent("process-evidence.json")
+        try JSONEncoder().encode(evidence).write(to: evidenceURL, options: .atomic)
+        try Data("tampered".utf8).write(
+            to: directory.appending(path: "qualification/oracle.json"),
+            options: .atomic
+        )
+
+        let result = await ToolQualificationCLI.invoke(arguments: [
+            "validate-process-evidence",
+            "--evidence", evidenceURL.path,
+            "--workspace-root", directory.path,
+            "--availability-inventory",
+            directory.appending(path: "artifact-availability.json").path,
+            "--require-pdk",
+            "--at", "150",
+        ])
+
+        #expect(result.exitCode == 2)
+        let envelope = try decodeStandardOutput(
+            ToolQualificationProcessEvidenceEnvelope.self,
+            from: result
+        )
+        #expect(envelope.diagnostics.contains {
+            $0.hasPrefix("process-evidence-derivation-failed:")
+        })
+    }
+
     private func makeValidationEvidence(
         in root: URL,
         includePDK: Bool
     ) async throws -> ToolProcessQualificationEvidence {
-        let toolProducer = try ProducerIdentity(kind: .tool, identifier: "magic-pex", version: "8.3.652")
-        let oracleProducer = try ProducerIdentity(kind: .tool, identifier: "calibre-pex", version: "2026.1")
-        let tool = try validationArtifact("tool", root: root, producer: toolProducer)
+        let tool = try validationArtifact("tool", root: root)
         let process = try validationArtifact("process", root: root)
         let pdk = try validationArtifact("pdk", root: root)
         let deck = try validationArtifact("deck", root: root)
-        let oracleTool = try validationArtifact("oracle-tool", root: root, producer: oracleProducer)
+        let oracleTool = try validationArtifact("oracle-tool", root: root)
         let identity = ToolProcessQualificationArtifacts(
             toolExecutable: tool,
             processProfile: process,
@@ -536,8 +577,7 @@ struct ToolQualificationCLITests {
                     comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                 )],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         let oracle = try validationArtifact(
             "oracle",
@@ -571,8 +611,7 @@ struct ToolQualificationCLITests {
                     )]
                 )],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         let health = try validationArtifact(
             "health",
@@ -586,11 +625,9 @@ struct ToolQualificationCLITests {
                 inputArtifacts: [input],
                 outputArtifacts: [output],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
-        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
-            ToolProcessQualificationEvidenceBuildRequest(
+        let request = ToolProcessQualificationEvidenceBuildRequest(
                 qualificationID: "sky130-pex-production-v1",
                 toolID: "magic-pex",
                 scope: scope,
@@ -602,10 +639,23 @@ struct ToolQualificationCLITests {
                 outputArtifacts: [output, oracleOutput],
                 qualifiedAt: Date(timeIntervalSince1970: 100),
                 expiresAt: Date(timeIntervalSince1970: 200)
-            ),
-            reading: LocalToolQualificationArtifactReader(workspaceRoot: root),
-            at: Date(timeIntervalSince1970: 150)
+            )
+        let artifactFixture = try ToolQualificationCLIArtifactFixture()
+        let inventoryURL = try artifactFixture.writeQualificationDirectoryInventory(root: root)
+        let inventory = try JSONDecoder().decode(
+            ToolQualificationCLIArtifactAvailabilityInventory.self,
+            from: Data(contentsOf: inventoryURL)
         )
+        let evidence = try await artifactFixture.withReader(
+            root: root,
+            availabilities: inventory.availabilities
+        ) { reader in
+            try await ToolProcessQualificationEvidenceBuilder().build(
+                request,
+                reading: reader,
+                at: Date(timeIntervalSince1970: 150)
+            )
+        }
         guard !includePDK else { return evidence }
         var object = try #require(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(evidence)) as? [String: Any]
@@ -623,8 +673,7 @@ struct ToolQualificationCLITests {
     private func validationArtifact(
         _ id: String,
         root: URL,
-        data: Data? = nil,
-        producer: ProducerIdentity? = nil
+        data: Data? = nil
     ) throws -> ArtifactReference {
         let path = "qualification/\(id).json"
         let url = root.appendingPathComponent(path)
@@ -637,8 +686,7 @@ struct ToolQualificationCLITests {
                 kind: .evidence,
                 format: .json
             ),
-            relativeTo: root,
-            producer: producer
+            relativeTo: root
         )
     }
 
@@ -713,6 +761,17 @@ struct ToolQualificationCLITests {
         #expect(unknownCommand.exitCode == 1)
         let unknownCommandDiagnostic = try decodeDiagnostic(from: unknownCommand)
         #expect(unknownCommandDiagnostic.code == "toolqualification.cli.invalid-arguments")
+
+        let unpairedArtifactContext = await ToolQualificationCLI.invoke(arguments: [
+            "evaluate",
+            "--descriptor", "descriptor.json",
+            "--requirement", "requirement.json",
+            "--workspace-root", "/tmp/workspace",
+        ])
+        #expect(unpairedArtifactContext.exitCode == 1)
+        let unpairedDiagnostic = try decodeDiagnostic(from: unpairedArtifactContext)
+        #expect(unpairedDiagnostic.code == "toolqualification.cli.invalid-arguments")
+        #expect(unpairedDiagnostic.message.contains("must be provided together"))
     }
 
     // MARK: - Help
@@ -731,17 +790,20 @@ struct ToolQualificationCLITests {
         #expect(evaluate.standardOutput.contains("--requirement"))
         #expect(evaluate.standardOutput.contains("--health"))
         #expect(evaluate.standardOutput.contains("--workspace-root"))
+        #expect(evaluate.standardOutput.contains("--availability-inventory"))
 
         let registry = await ToolQualificationCLI.invoke(arguments: ["evaluate-registry", "--help"])
         #expect(registry.exitCode == 0)
         #expect(registry.standardOutput.contains("--descriptors"))
         #expect(registry.standardOutput.contains("--health-results"))
         #expect(registry.standardOutput.contains("--workspace-root"))
+        #expect(registry.standardOutput.contains("--availability-inventory"))
         #expect(registry.standardOutput.contains("selectedToolID"))
 
         let process = await ToolQualificationCLI.invoke(arguments: ["validate-process-evidence", "--help"])
         #expect(process.exitCode == 0)
         #expect(process.standardOutput.contains("--require-pdk"))
         #expect(process.standardOutput.contains("--at"))
+        #expect(process.standardOutput.contains("--availability-inventory"))
     }
 }

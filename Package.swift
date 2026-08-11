@@ -34,6 +34,8 @@ let package = Package(
             name: "ToolQualification",
             dependencies: [
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationCrypto", package: "CircuiteFoundation"),
             ]
         ),
         .target(
@@ -41,6 +43,18 @@ let package = Package(
             dependencies: [
                 "ToolQualification",
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(
+                    name: "CircuiteFoundationFoundation",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationCrypto",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationFileSystem",
+                    package: "CircuiteFoundation"
+                ),
             ]
         ),
         .executableTarget(
@@ -52,6 +66,18 @@ let package = Package(
             dependencies: [
                 "ToolQualification",
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(
+                    name: "CircuiteFoundationFoundation",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationCrypto",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationFileSystem",
+                    package: "CircuiteFoundation"
+                ),
             ]
         ),
         .testTarget(
@@ -59,6 +85,19 @@ let package = Package(
             dependencies: [
                 "ToolQualificationCLICore",
                 "ToolQualification",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(
+                    name: "CircuiteFoundationFoundation",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationCrypto",
+                    package: "CircuiteFoundation"
+                ),
+                .product(
+                    name: "CircuiteFoundationFileSystem",
+                    package: "CircuiteFoundation"
+                ),
             ]
         ),
     ]

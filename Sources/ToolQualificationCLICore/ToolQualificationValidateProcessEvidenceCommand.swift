@@ -11,6 +11,7 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
     public struct Options: Sendable, Equatable {
         public var evidencePath: String
         public var workspaceRoot: String
+        public var availabilityInventoryPath: String
         public var requirePDKScope: Bool
         public var evaluatedAt: Date
         public var pretty: Bool
@@ -18,6 +19,7 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
         public init(arguments: [String], now: Date = Date()) throws {
             var evidencePath: String?
             var workspaceRoot: String?
+            var availabilityInventoryPath: String?
             var requirePDKScope = false
             var evaluatedAt = now
             var pretty = false
@@ -28,6 +30,8 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
                     evidencePath = try cursor.requireValue(for: argument)
                 case "--workspace-root":
                     workspaceRoot = try cursor.requireValue(for: argument)
+                case "--availability-inventory":
+                    availabilityInventoryPath = try cursor.requireValue(for: argument)
                 case "--require-pdk":
                     requirePDKScope = true
                 case "--at":
@@ -56,8 +60,14 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
                     "Missing required argument: --workspace-root"
                 )
             }
+            guard let availabilityInventoryPath else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "Missing required argument: --availability-inventory"
+                )
+            }
             self.evidencePath = evidencePath
             self.workspaceRoot = workspaceRoot
+            self.availabilityInventoryPath = availabilityInventoryPath
             self.requirePDKScope = requirePDKScope
             self.evaluatedAt = evaluatedAt
             self.pretty = pretty
@@ -71,20 +81,23 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
             ToolProcessQualificationEvidence.self,
             atPath: options.evidencePath
         )
-        let reader = LocalToolQualificationArtifactReader(
-            workspaceRoot: URL(filePath: options.workspaceRoot)
+        let context = try ToolQualificationCLIArtifactContext(
+            workspaceRootPath: options.workspaceRoot,
+            availabilityInventoryPath: options.availabilityInventoryPath
         )
-        let derivationVerified: Bool
-        do {
-            try await ToolProcessQualificationEvidenceValidator().validate(
-                evidence,
-                reading: reader,
-                at: options.evaluatedAt
-            )
-            derivationVerified = true
-        } catch {
-            derivationVerified = false
+        let derivationFailure = try await context.withReader { reader -> String? in
+            do {
+                try await ToolProcessQualificationEvidenceValidator().validate(
+                    evidence,
+                    reading: reader,
+                    at: options.evaluatedAt
+                )
+                return nil
+            } catch {
+                return String(describing: error)
+            }
         }
+        let derivationVerified = derivationFailure == nil
         let structurallyValid = evidence.isStructurallyValid && derivationVerified
         let qualified = structurallyValid && evidence.isQualified(
             at: options.evaluatedAt,
@@ -107,7 +120,8 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
                 structurallyValid: structurallyValid,
                 qualified: qualified,
                 requirePDKScope: options.requirePDKScope,
-                evaluatedAt: options.evaluatedAt
+                evaluatedAt: options.evaluatedAt,
+                derivationFailure: derivationFailure
             )
         )
         let output = try ToolQualificationCLIJSONCoding.encode(envelope, pretty: options.pretty)
@@ -123,11 +137,15 @@ public struct ToolQualificationValidateProcessEvidenceCommand: Sendable {
         structurallyValid: Bool,
         qualified: Bool,
         requirePDKScope: Bool,
-        evaluatedAt: Date
+        evaluatedAt: Date,
+        derivationFailure: String?
     ) -> [String] {
         var result: [String] = []
         if !structurallyValid {
             result.append("process-evidence-structurally-invalid")
+        }
+        if let derivationFailure {
+            result.append("process-evidence-derivation-failed:\(derivationFailure)")
         }
         if requirePDKScope && !evidence.scope.isCompleteForPDK {
             result.append("process-evidence-pdk-scope-incomplete")

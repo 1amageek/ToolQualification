@@ -75,8 +75,8 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         )
         guard Set(inputArtifacts.map(artifactIdentityKey))
             .isDisjoint(with: Set(outputArtifacts.map(artifactIdentityKey))),
-              Set(inputArtifacts.map { $0.id.rawValue })
-                .isDisjoint(with: Set(outputArtifacts.map { $0.id.rawValue })) else {
+              Set(inputArtifacts.map { $0.id.description })
+                .isDisjoint(with: Set(outputArtifacts.map { $0.id.description })) else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "inputArtifacts and outputArtifacts must identify distinct retained artifacts"
             )
@@ -151,7 +151,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                   result.qualificationID == request.qualificationID,
                   result.toolID == request.toolID,
                   result.scope == request.scope,
-                  issuerMatches(result.issuer, artifact: artifact),
+                  result.issuer.kind == .engine,
                   result.checkedAt >= request.qualifiedAt,
                   result.checkedAt <= evaluatedAt,
                   Set(result.inputArtifacts).isSubset(of: Set(inputArtifacts)),
@@ -192,7 +192,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                   result.qualificationID == request.qualificationID,
                   result.primaryToolID == request.toolID,
                   result.scope == request.scope,
-                  issuerMatches(result.issuer, artifact: artifact),
+                  result.issuer.kind == .engine,
                   result.checkedAt >= request.qualifiedAt,
                   result.checkedAt <= evaluatedAt,
                   Set(result.inputArtifacts).isSubset(of: Set(inputArtifacts)),
@@ -229,7 +229,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                   result.qualificationID == request.qualificationID,
                   result.toolID == request.toolID,
                   result.scope == request.scope,
-                  issuerMatches(result.issuer, artifact: artifact),
+                  result.issuer.kind == .engine,
                   result.checkedAt >= request.qualifiedAt,
                   result.checkedAt <= evaluatedAt,
                   Set(result.inputArtifacts).isSubset(of: Set(inputArtifacts)),
@@ -260,13 +260,6 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         )
     }
 
-    private func issuerMatches(
-        _ issuer: ProducerIdentity,
-        artifact: ArtifactReference
-    ) -> Bool {
-        issuer.kind == .engine && artifact.producer == issuer
-    }
-
     private func validateArtifacts(
         _ artifacts: [ArtifactReference],
         reading reader: any ToolQualificationArtifactReading
@@ -281,15 +274,12 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         for artifact in artifacts {
             let key = artifactIdentityKey(artifact)
             guard artifactsByKey[key] == nil,
-                  artifactIDs.insert(artifact.id.rawValue).inserted else {
+                  artifactIDs.insert(artifact.id.description).inserted else {
                 throw ToolProcessQualificationEvidenceBuildError.duplicateArtifact(
                     artifactID(artifact)
                 )
             }
-            guard artifact.locator.location.storage == .workspaceRelative,
-                  !artifact.locator.location.value.isEmpty,
-                  artifact.digest.algorithm == .sha256,
-                  artifact.byteCount > 0 else {
+            guard ToolQualificationArtifactValidation.isVerifiable(artifact) else {
                 throw ToolProcessQualificationEvidenceBuildError.invalidArtifact(
                     artifactID(artifact)
                 )
@@ -315,15 +305,12 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         for artifact in artifacts {
             let key = artifactIdentityKey(artifact)
             guard seen.insert(key).inserted,
-                  seenIDs.insert(artifact.id.rawValue).inserted else {
+                  seenIDs.insert(artifact.id.description).inserted else {
                 throw ToolProcessQualificationEvidenceBuildError.duplicateArtifact(
                     artifactID(artifact)
                 )
             }
-            guard artifact.locator.location.storage == .workspaceRelative,
-                  !artifact.locator.location.value.isEmpty,
-                  artifact.digest.algorithm == .sha256,
-                  artifact.byteCount > 0 else {
+            guard ToolQualificationArtifactValidation.isVerifiable(artifact) else {
                 throw ToolProcessQualificationEvidenceBuildError.invalidArtifact(
                     artifactID(artifact)
                 )
@@ -339,7 +326,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         reading reader: any ToolQualificationArtifactReading
     ) async throws {
         guard Set(artifacts.all.map(artifactIdentityKey)).count == artifacts.all.count,
-              Set(artifacts.all.map { $0.id.rawValue }).count == artifacts.all.count else {
+              Set(artifacts.all.map { $0.id.description }).count == artifacts.all.count else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "tool, process, PDK, deck, and oracle identity artifacts must be distinct"
             )
@@ -362,36 +349,17 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 "identity artifact digests must match the exact tool, process, PDK, deck, and oracle scope"
             )
         }
-        guard let toolProducer = artifacts.toolExecutable.producer,
-              toolProducer.kind == .tool,
-              toolProducer.identifier == scope.implementationID,
-              toolProducer.version == scope.toolVersion,
-              let oracleProducer = artifacts.oracleExecutable.producer,
-              oracleProducer.kind == .tool,
-              oracleProducer.identifier == scope.oracle?.implementationID,
-              oracleProducer.version == scope.oracle?.version else {
-            throw ToolProcessQualificationEvidenceBuildError.invalidInput(
-                "tool and oracle executable artifacts must bind their exact producer identifiers and versions"
-            )
-        }
     }
 
     private func artifactIdentityKey(_ artifact: ArtifactReference) -> String {
-        [
-            artifact.locator.location.storage.rawValue,
-            artifact.locator.location.value,
-        ].joined(separator: "|")
+        ToolQualificationArtifactValidation.identityKey(artifact)
     }
 
     private func artifactID(_ artifact: ArtifactReference) -> String {
-        artifact.id.rawValue
+        artifact.id.description
     }
 
     private func isVerifiableArtifact(_ artifact: ArtifactReference) -> Bool {
-        artifact.locator.location.storage == .workspaceRelative
-            && !artifact.locator.location.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && artifact.digest.algorithm == .sha256
-            && artifact.digest.hexadecimalValue.utf8.count == 64
-            && artifact.byteCount > 0
+        ToolQualificationArtifactValidation.isVerifiable(artifact)
     }
 }

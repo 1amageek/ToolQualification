@@ -58,8 +58,8 @@ public struct ToolEvidence: Sendable, Hashable, Codable {
 
     public var hasVerifiableArtifactBinding: Bool {
         guard let artifact else { return false }
-        return artifact.locator.location.storage == .workspaceRelative
-            && !artifact.locator.location.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return artifact.id.digest == artifact.digest
+            && artifact.id.byteCount == artifact.byteCount
             && artifact.digest.algorithm == .sha256
             && artifact.digest.hexadecimalValue.utf8.count == 64
             && artifact.byteCount > 0

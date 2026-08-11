@@ -25,6 +25,8 @@ evidence manifest that can be persisted or reviewed by an Agent or a human.
 ```mermaid
 flowchart LR
   Request["ToolQualificationRequest\ndescriptor + requirement + health"] --> Evaluator["ToolTrustEvaluator"]
+  Availability["ArtifactAvailability inventory\nroot ID + budget"] --> Reader["Root-capability reader"]
+  Reader --> Evaluator
   Evaluator --> Decision["ToolTrustDecision"]
   Decision --> Result["ToolQualificationResult"]
   Result --> Evidence["EvidenceManifest\nArtifactReference[]"]
@@ -54,6 +56,7 @@ no dependency on project, run, or workspace storage.
 | `ToolQualificationScope` / `ToolOracleQualificationScope` | Exact tool version/binary, algorithm, process, deck, PDK and independent oracle binary scope |
 | `ToolProcessQualificationEvidence` | Complete retained corpus/oracle/health evidence graph plus qualified input/output artifacts and validity window |
 | `ToolProcessQualificationEvidenceBuilder` | Promotes artifact-backed independent corpus, oracle, and health evidence into a qualified process record |
+| `ToolQualificationCLIArtifactAvailabilityInventory` | CLI-owned root identity, bounded access budget, and explicit artifact-to-relative-path availability; never part of content identity |
 | `ToolQualificationCLICore` / `toolqualification` | Testable CLI core + headless executable |
 
 ## Rules
@@ -124,12 +127,17 @@ toolqualification evaluate \
   --requirement requirement.json \
   --health health.json \
   --workspace-root /path/to/workspace \
+  --availability-inventory artifact-availability.json \
   --pretty
 ```
 
-`--workspace-root` enables integrity-checked loading of retained qualification
-artifacts. A descriptor at `smokeChecked` or above fails closed when its typed
-qualification result cannot be read and reproduced from that root.
+`--workspace-root` and `--availability-inventory` must be supplied together.
+The inventory explicitly binds every content identity to a root ID and relative
+path and supplies the page, byte, work, and duration budget. The CLI opens the
+root capability, performs integrity-checked bounded reads, and surfaces close
+failure. It does not infer paths from `ArtifactReference` or scan the workspace.
+A descriptor at `smokeChecked` or above fails closed when its typed qualification
+result cannot be read and reproduced through that capability.
 
 All input files are this package's own Codable models serialized as JSON
 (`ToolDescriptor`, `ToolTrustRequirement`, `ToolHealthCheckResult`). stdout is
@@ -146,7 +154,8 @@ a single command-specific JSON result:
     "descriptorKind": "…", "descriptorTrustLevel": "…",
     "requirementPath": "…", "requirementKind": "…",
     "requirementOperationID": "…", "requirementMinimumLevel": "…",
-    "healthPath": "…", "healthToolID": "…", "healthStatus": "…"
+    "healthPath": "…", "healthToolID": "…", "healthStatus": "…",
+    "workspaceRootPath": "…", "availabilityInventoryPath": "…"
   }
 }
 ```
@@ -165,7 +174,8 @@ toolqualification evaluate-registry \
   --descriptors descriptors.json \
   --requirement requirement.json \
   --health-results health-results.json \
-  --workspace-root /path/to/workspace
+  --workspace-root /path/to/workspace \
+  --availability-inventory artifact-availability.json
 ```
 
 Decisions are ranked exactly the way `DesignFlowKernel` orders stage tools:
@@ -194,6 +204,8 @@ and independence blockers. It exits 2 for a readable but unqualified record:
 ```bash
 toolqualification validate-process-evidence \
   --evidence process-qualification-evidence.json \
+  --workspace-root /path/to/project \
+  --availability-inventory artifact-availability.json \
   --require-pdk \
   --at 1782940000 \
   --pretty
@@ -214,13 +226,14 @@ qualification window:
 toolqualification build-process-evidence \
   --input process-qualification-build-request.json \
   --workspace-root /path/to/project \
+  --availability-inventory artifact-availability.json \
   --output process-qualification-evidence.json \
   --pretty
 ```
 
 The builder verifies evidence kinds, independent passing qualification summaries,
-distinct primary/oracle outputs, result-to-artifact bindings, project-relative
-paths, SHA-256 digests, byte counts, scope, timestamps, validity, and that both
+distinct primary/oracle outputs, result-to-artifact bindings, explicitly supplied
+availability, SHA-256 digests, byte counts, scope, timestamps, validity, and that both
 corpus and oracle results cover every requested operating corner. It exits 2
 without writing an output record when any promotion condition is missing. This
 command creates a reproducible local record from already-produced evidence; it
@@ -236,6 +249,7 @@ health result, and retained qualification artifact:
 toolqualification issue-record \
   --input qualification-record-issuance-request.json \
   --workspace-root /path/to/project \
+  --availability-inventory artifact-availability.json \
   --record-path qualification/runtime-record.json \
   --reference-output runtime-record-reference.json \
   --pretty
@@ -243,9 +257,11 @@ toolqualification issue-record \
 
 The input is a typed `ToolQualificationRecordIssuanceRequest`. The command
 writes a canonical `ToolQualificationRecord` inside the workspace and a
-digest-bound `ArtifactReference` suitable for Xcircuite's
-`attach-qualification-record`. Raw engine observation exports are deliberately
-not accepted as runtime qualification records.
+location-independent, digest-bound `ArtifactReference` suitable for Xcircuite's
+`attach-qualification-record`. The stdout envelope separately carries the
+record's `ArtifactAvailability`; provenance remains inside the canonical record.
+Raw engine observation exports are deliberately not accepted as runtime
+qualification records.
 
 ### Exit codes and diagnostics
 
@@ -272,6 +288,7 @@ the full surface.
 ## Build & test
 
 ```bash
-swift build
-swift test
+swift build --build-tests -j 4
+/usr/bin/perl -e 'alarm shift; exec @ARGV' 60 \
+  xcrun xctest -XCTest '<Module.Suite/test()>' <bundle.xctest>
 ```

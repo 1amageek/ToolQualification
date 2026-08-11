@@ -42,8 +42,8 @@ public struct ToolSmokeQualificationResult: Sendable, Hashable, Codable {
         self.qualificationID = qualificationID
         self.toolID = toolID
         self.issuer = issuer
-        self.inputArtifacts = inputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
-        self.outputArtifacts = outputArtifacts.sorted { $0.id.rawValue < $1.id.rawValue }
+        self.inputArtifacts = inputArtifacts.sorted { $0.id.description < $1.id.description }
+        self.outputArtifacts = outputArtifacts.sorted { $0.id.description < $1.id.description }
         self.diagnostics = diagnostics.sorted {
             ($0.severity.rawValue, $0.code, $0.message)
                 < ($1.severity.rawValue, $1.code, $1.message)

@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import Testing
 
@@ -600,8 +601,8 @@ private struct QualificationFixture {
 
     init() throws {
         issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1")
-        inputArtifact = try Self.artifact(id: "input", producer: issuer)
-        outputArtifact = try Self.artifact(id: "output", producer: issuer)
+        inputArtifact = try Self.artifact(data: Data([0]))
+        outputArtifact = try Self.artifact(data: Data([1]))
         scope = ToolQualificationScope(
             implementationID: "native-drc",
             toolVersion: "1.0.0",
@@ -623,7 +624,7 @@ private struct QualificationFixture {
 
     func corpusEvidence(passing: Bool, canonical: Bool = true) async throws -> ToolEvidence {
         await reader.insert(Data([0]), for: inputArtifact)
-        await reader.insert(Data([0]), for: outputArtifact)
+        await reader.insert(Data([1]), for: outputArtifact)
         let result = ToolCorpusQualificationResult(
             resultID: "corpus-result",
             qualificationID: "qualification",
@@ -649,9 +650,7 @@ private struct QualificationFixture {
             data.append(0x20)
         }
         let artifact = try Self.artifact(
-            id: passing ? "corpus-pass" : "corpus-fail",
-            producer: issuer,
-            byteCount: UInt64(data.count)
+            data: data
         )
         await reader.insert(data, for: artifact)
         return ToolEvidence(
@@ -699,24 +698,16 @@ private struct QualificationFixture {
     }
 
     private static func artifact(
-        id: String,
-        producer: ProducerIdentity,
-        byteCount: UInt64 = 1
+        data: Data
     ) throws -> ArtifactReference {
-        ArtifactReference(
-            id: try ArtifactID(rawValue: id),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: "qualification/\(id).json"),
+        try ArtifactReference(
+            digest: SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(
                 role: .output,
                 kind: .report,
                 format: .json
-            ),
-            digest: try ContentDigest(
-                algorithm: .sha256,
-                hexadecimalValue: String(repeating: "f", count: 64)
-            ),
-            byteCount: byteCount,
-            producer: producer
+            )
         )
     }
 }
@@ -734,7 +725,9 @@ private actor InMemoryQualificationArtifactReader: ToolQualificationArtifactRead
 
     func verifiedData(for reference: ArtifactReference) async throws -> Data {
         guard let data = dataByReference[reference] else {
-            throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(reference.id.rawValue)
+            throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+                reference.id.description
+            )
         }
         return data
     }
@@ -742,6 +735,8 @@ private actor InMemoryQualificationArtifactReader: ToolQualificationArtifactRead
 
 private struct FailingQualificationArtifactReader: ToolQualificationArtifactReading {
     func verifiedData(for reference: ArtifactReference) async throws -> Data {
-        throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(reference.id.rawValue)
+        throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+            reference.id.description
+        )
     }
 }

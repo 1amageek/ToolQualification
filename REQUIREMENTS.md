@@ -13,12 +13,14 @@
 | TQ-007 | Keep process qualification records reproducible, timestamped, scoped, and independently reviewable. |
 | TQ-008 | Keep the CLI headless, machine-readable, and stable for Agent use with typed command results and structured diagnostics. |
 | TQ-009 | Keep qualification records portable; project/run migration and persistence belong to Xcircuite and DesignFlowKernel. |
+| TQ-010 | Keep content identity location-independent. CLI local reads require an explicit `ArtifactAvailability` inventory, root capability, bounded budget, and fallible close; path inference and silent fallback are forbidden. |
 
 ## Quality and acceptance criteria
 
-- `swift build` succeeds in the package checkout.
-- The current regression baseline remains green: 58 tests pass under a bounded
-  `swift test` run.
+- `swift build --build-tests -j 4` succeeds in the package checkout.
+- Focused direct tests run under an external timeout and exercise successful
+  verified reads, missing availability, tamper, root mismatch, CLI option
+  pairing, and qualification promotion/rejection behavior.
 - An unknown, stale, unqualified, unhealthy, or scope-mismatched tool is never
   eligible by default.
 - Missing or malformed evidence produces typed diagnostics and a rejected or

@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 
 /// Inputs to a trust evaluation that must be reproducible by an engine or CLI.
@@ -38,13 +39,14 @@ public struct ToolQualificationResult: Sendable, Hashable, Codable, ArtifactProd
     artifacts: [ArtifactReference] = [],
     diagnostics: [DesignDiagnostic] = [],
     provenance: ExecutionProvenance
-  ) {
+  ) throws {
     self.decision = decision
     self.artifacts = artifacts
     self.diagnostics = diagnostics
-    self.evidence = EvidenceManifest(
+    self.evidence = try EvidenceManifest.contentAddressed(
       provenance: provenance,
-      artifacts: artifacts
+      artifacts: artifacts,
+      digester: SHA256ContentDigester()
     )
   }
 }

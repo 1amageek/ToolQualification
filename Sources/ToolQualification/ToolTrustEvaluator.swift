@@ -387,8 +387,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 let result = try ToolSmokeQualificationResult.decodeCanonical(from: data)
                 guard result.resultID == evidence.evidenceID,
                       result.toolID == toolID,
-                      result.issuer.kind == .engine,
-                      artifact.producer == result.issuer else {
+                      result.issuer.kind == .engine else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "smoke result identity or issuer does not match")
                 }
                 guard result.checkedAt == evidence.checkedAt else {
@@ -408,8 +407,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 let result = try ToolCorpusQualificationResult.decodeCanonical(from: data)
                 guard result.resultID == evidence.evidenceID,
                       result.toolID == toolID,
-                      result.issuer.kind == .engine,
-                      artifact.producer == result.issuer else {
+                      result.issuer.kind == .engine else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "corpus result identity or issuer does not match")
                 }
                 guard result.checkedAt == evidence.checkedAt else {
@@ -433,8 +431,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 let result = try ToolOracleQualificationResult.decodeCanonical(from: data)
                 guard result.resultID == evidence.evidenceID,
                       result.primaryToolID == toolID,
-                      result.issuer.kind == .engine,
-                      artifact.producer == result.issuer else {
+                      result.issuer.kind == .engine else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "oracle result identity or issuer does not match")
                 }
                 guard result.checkedAt == evidence.checkedAt else {
@@ -460,8 +457,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 let result = try ToolHealthQualificationResult.decodeCanonical(from: data)
                 guard result.resultID == evidence.evidenceID,
                       result.toolID == toolID,
-                      result.issuer.kind == .engine,
-                      artifact.producer == result.issuer else {
+                      result.issuer.kind == .engine else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_IDENTITY_MISMATCH", detail: "health result identity or issuer does not match")
                 }
                 guard result.checkedAt == evidence.checkedAt else {
@@ -523,7 +519,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 return evidenceDiagnostic(
                     evidence,
                     code: "QUALIFICATION_BOUND_ARTIFACT_INTEGRITY_FAILED",
-                    detail: "could not verify retained artifact \(reference.id.rawValue): \(error.localizedDescription)"
+                    detail: "could not verify retained artifact \(reference.id.description): \(error.localizedDescription)"
                 )
             }
         }

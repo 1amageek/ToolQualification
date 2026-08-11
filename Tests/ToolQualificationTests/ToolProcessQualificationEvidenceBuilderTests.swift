@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 
 @testable import ToolQualification
 
@@ -15,14 +18,14 @@ struct ToolProcessQualificationEvidenceBuilderTests {
 
         let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
             request,
-            reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+            reading: fixture.reader,
             at: now
         )
 
         #expect(evidence.status == .qualified)
         #expect(evidence.isQualified(at: now, requirePDKScope: true))
         #expect(evidence.hasIndependentOracleEvidence)
-        #expect(evidence.evidenceArtifactIDs == request.evidenceArtifacts.map { $0.id.rawValue }.sorted())
+        #expect(evidence.evidenceArtifactIDs == request.evidenceArtifacts.map { $0.id.description }.sorted())
         #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
     }
 
@@ -38,7 +41,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
 
         let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
             qualified,
-            reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+            reading: fixture.reader,
             at: now
         )
         #expect(evidence.qualifiedOperatingCornerIDs == ["ff", "ss", "tt"])
@@ -50,7 +53,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 missing,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
         }
@@ -62,12 +65,12 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_000)
         var request = fixture.request(now: now)
-        request.corpusResultArtifacts = [try fixture.failedCorpusResult(now: now)]
+        request.corpusResultArtifacts = [try await fixture.failedCorpusResult(now: now)]
 
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
         }
@@ -87,7 +90,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         do {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
             Issue.record("Changed evidence must not be promoted")
@@ -106,7 +109,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.notValidAt) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
         }
@@ -123,7 +126,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
         }
@@ -140,7 +143,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.missingEvidence(.oracle)) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 request,
-                reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+                reading: fixture.reader,
                 at: now
             )
         }
@@ -213,21 +216,21 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let request = fixture.request(now: now)
         let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
             request,
-            reading: LocalToolQualificationArtifactReader(workspaceRoot: fixture.root),
+            reading: fixture.reader,
             at: now
         )
 
         try expectCurrentSchema(
             ToolCorpusQualificationResult.self,
-            data: Data(contentsOf: fixture.root.appending(path: fixture.corpus.path))
+            data: Data(contentsOf: fixture.root.appending(path: "qualification/corpus-evidence.json"))
         )
         try expectCurrentSchema(
             ToolOracleQualificationResult.self,
-            data: Data(contentsOf: fixture.root.appending(path: fixture.oracle.path))
+            data: Data(contentsOf: fixture.root.appending(path: "qualification/oracle-evidence.json"))
         )
         try expectCurrentSchema(
             ToolHealthQualificationResult.self,
-            data: Data(contentsOf: fixture.root.appending(path: fixture.health.path))
+            data: Data(contentsOf: fixture.root.appending(path: "qualification/health-evidence.json"))
         )
         try expectCurrentSchema(
             ToolProcessQualificationEvidenceBuildRequest.self,
@@ -270,18 +273,17 @@ private struct Fixture {
     let output: ArtifactReference
     let oracleOutput: ArtifactReference
     let issuer: ProducerIdentity
+    let reader: VerifiedFileQualificationArtifactReader
 
     init() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("tool-qualification-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let toolProducer = try ProducerIdentity(kind: .tool, identifier: "qualified-scan", version: "1.0.0")
-        let oracleProducer = try ProducerIdentity(kind: .tool, identifier: "independent-scan-oracle", version: "2.0.0")
-        let tool = try Self.artifact("tool", root: root, producer: toolProducer)
+        let tool = try Self.artifact("tool", root: root)
         let process = try Self.artifact("process", root: root)
         let pdk = try Self.artifact("pdk", root: root)
         let deck = try Self.artifact("deck", root: root)
-        let oracleTool = try Self.artifact("oracle-tool", root: root, producer: oracleProducer)
+        let oracleTool = try Self.artifact("oracle-tool", root: root)
         identity = ToolProcessQualificationArtifacts(
             toolExecutable: tool,
             processProfile: process,
@@ -330,8 +332,7 @@ private struct Fixture {
                 ),
                 cases: [Self.passingCase("case-1")],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         oracle = try Self.artifact(
             "oracle-evidence",
@@ -351,8 +352,7 @@ private struct Fixture {
                 ),
                 cases: [Self.passingOracleCase("case-1")],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
         health = try Self.artifact(
             "health-evidence",
@@ -366,9 +366,21 @@ private struct Fixture {
                 inputArtifacts: [input],
                 outputArtifacts: [output],
                 checkedAt: checkedAt
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
+        reader = VerifiedFileQualificationArtifactReader(urlsByArtifactID: [
+            tool.id: Self.url("tool", root: root),
+            process.id: Self.url("process", root: root),
+            pdk.id: Self.url("pdk", root: root),
+            deck.id: Self.url("deck", root: root),
+            oracleTool.id: Self.url("oracle-tool", root: root),
+            input.id: Self.url("input", root: root),
+            output.id: Self.url("output", root: root),
+            oracleOutput.id: Self.url("oracle-output", root: root),
+            corpus.id: Self.url("corpus-evidence", root: root),
+            oracle.id: Self.url("oracle-evidence", root: root),
+            health.id: Self.url("health-evidence", root: root),
+        ])
     }
 
     func request(
@@ -393,8 +405,8 @@ private struct Fixture {
         )
     }
 
-    func failedCorpusResult(now: Date) throws -> ArtifactReference {
-        try Self.artifact(
+    func failedCorpusResult(now: Date) async throws -> ArtifactReference {
+        let reference = try Self.artifact(
             "corpus-evidence",
             root: root,
             data: ToolCorpusQualificationResult(
@@ -415,9 +427,13 @@ private struct Fixture {
                     )]
                 )],
                 checkedAt: now
-            ).canonicalData(),
-            producer: issuer
+            ).canonicalData()
         )
+        await reader.insert(
+            Self.url("corpus-evidence", root: root),
+            for: reference.id
+        )
+        return reference
     }
 
     func remove() {
@@ -456,8 +472,7 @@ private struct Fixture {
     private static func artifact(
         _ name: String,
         root: URL,
-        data: Data? = nil,
-        producer: ProducerIdentity? = nil
+        data: Data? = nil
     ) throws -> ArtifactReference {
         let relativePath = "qualification/\(name).json"
         let url = root.appendingPathComponent(relativePath)
@@ -473,8 +488,40 @@ private struct Fixture {
                 kind: .evidence,
                 format: .json
             ),
-            relativeTo: root,
-            producer: producer
+            relativeTo: root
         )
+    }
+
+    private static func url(_ name: String, root: URL) -> URL {
+        root.appending(path: "qualification/\(name).json")
+    }
+}
+
+private actor VerifiedFileQualificationArtifactReader: ToolQualificationArtifactReading {
+    private var urlsByArtifactID: [ArtifactID: URL]
+
+    init(urlsByArtifactID: [ArtifactID: URL]) {
+        self.urlsByArtifactID = urlsByArtifactID
+    }
+
+    func insert(_ url: URL, for artifactID: ArtifactID) {
+        urlsByArtifactID[artifactID] = url
+    }
+
+    func verifiedData(for reference: ArtifactReference) async throws -> Data {
+        guard let url = urlsByArtifactID[reference.id] else {
+            throw ToolProcessQualificationEvidenceBuildError.artifactAvailabilityMissing(
+                reference.id.description
+            )
+        }
+        let data = try Data(contentsOf: url)
+        let digest = try SHA256ContentDigester().digest(data: data, using: .sha256)
+        guard digest == reference.digest,
+              UInt64(data.count) == reference.byteCount else {
+            throw ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+                reference.id.description
+            )
+        }
+        return data
     }
 }

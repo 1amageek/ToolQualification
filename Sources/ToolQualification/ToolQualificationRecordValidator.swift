@@ -22,10 +22,6 @@ public struct ToolQualificationRecordValidator: ToolQualificationRecordValidatin
                 actual: record.descriptor.toolID
             )
         }
-        guard artifact.producer == record.issuer else {
-            throw ToolQualificationRecordError.issuerMismatch
-        }
-
         for capability in record.descriptor.capabilities.sorted(by: { $0.operationID < $1.operationID }) {
             let requirement = ToolTrustRequirement(
                 kind: record.descriptor.kind,

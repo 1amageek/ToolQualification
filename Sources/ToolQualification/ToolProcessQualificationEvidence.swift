@@ -112,7 +112,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     public var corpusEvidenceIDs: [String] { corpusEvidence.map(\.evidenceID) }
     public var oracleEvidenceIDs: [String] { oracleEvidence.map(\.evidenceID) }
     public var healthEvidenceIDs: [String] { healthEvidence.map(\.evidenceID) }
-    public var evidenceArtifactIDs: [String] { evidenceArtifacts.map { $0.id.rawValue } }
+    public var evidenceArtifactIDs: [String] { evidenceArtifacts.map { $0.id.description } }
     public var evidenceArtifacts: [ArtifactReference] {
         Self.sortedArtifacts((corpusEvidence + oracleEvidence + healthEvidence).compactMap(\.artifact))
     }
@@ -138,12 +138,10 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && identityArtifacts.pdk.digest.hexadecimalValue.caseInsensitiveCompare(pdkDigest) == .orderedSame
             && identityArtifacts.ruleDeck.digest.hexadecimalValue.caseInsensitiveCompare(scope.deckDigest) == .orderedSame
             && oracle.digest.hexadecimalValue.caseInsensitiveCompare(oracleScope.binaryDigest) == .orderedSame
-            && tool.producer?.kind == .tool
-            && tool.producer?.identifier == scope.implementationID
-            && tool.producer?.version == scope.toolVersion
-            && oracle.producer?.kind == .tool
-            && oracle.producer?.identifier == oracleScope.implementationID
-            && oracle.producer?.version == oracleScope.version
+            && !scope.implementationID.isEmpty
+            && !scope.toolVersion.isEmpty
+            && !oracleScope.implementationID.isEmpty
+            && !oracleScope.version.isEmpty
     }
 
     public var isStructurallyValid: Bool {
@@ -163,7 +161,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && identityArtifacts.all.count
                 == Set(identityArtifacts.all.map(Self.artifactIdentityKey)).count
             && identityArtifacts.all.count
-                == Set(identityArtifacts.all.map { $0.id.rawValue }).count
+                == Set(identityArtifacts.all.map { $0.id.description }).count
             && identityArtifacts.all.allSatisfy(Self.isVerifiableArtifact)
             && evidenceGroups.allSatisfy { kind, evidence in
                 !evidence.isEmpty && evidence.allSatisfy {
@@ -179,15 +177,15 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && !inputArtifacts.isEmpty
             && inputArtifacts.allSatisfy(Self.isVerifiableArtifact)
             && Set(inputArtifacts.map(Self.artifactIdentityKey)).count == inputArtifacts.count
-            && Set(inputArtifacts.map { $0.id.rawValue }).count == inputArtifacts.count
+            && Set(inputArtifacts.map { $0.id.description }).count == inputArtifacts.count
             && !outputArtifacts.isEmpty
             && outputArtifacts.allSatisfy(Self.isVerifiableArtifact)
             && Set(outputArtifacts.map(Self.artifactIdentityKey)).count == outputArtifacts.count
-            && Set(outputArtifacts.map { $0.id.rawValue }).count == outputArtifacts.count
+            && Set(outputArtifacts.map { $0.id.description }).count == outputArtifacts.count
             && Set(inputArtifacts.map(Self.artifactIdentityKey))
                 .isDisjoint(with: Set(outputArtifacts.map(Self.artifactIdentityKey)))
-            && Set(inputArtifacts.map { $0.id.rawValue })
-                .isDisjoint(with: Set(outputArtifacts.map { $0.id.rawValue }))
+            && Set(inputArtifacts.map { $0.id.description })
+                .isDisjoint(with: Set(outputArtifacts.map { $0.id.description }))
             && qualifiedOperatingCornerIDs.allSatisfy(Self.isToken)
     }
 
@@ -250,18 +248,11 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     }
 
     private static func isVerifiableArtifact(_ artifact: ArtifactReference) -> Bool {
-        artifact.locator.location.storage == .workspaceRelative
-            && !artifact.locator.location.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && artifact.digest.algorithm == .sha256
-            && artifact.digest.hexadecimalValue.utf8.count == 64
-            && artifact.byteCount > 0
+        ToolQualificationArtifactValidation.isVerifiable(artifact)
     }
 
     private static func artifactIdentityKey(_ artifact: ArtifactReference) -> String {
-        [
-            artifact.locator.location.storage.rawValue,
-            artifact.locator.location.value,
-        ].joined(separator: "|")
+        ToolQualificationArtifactValidation.identityKey(artifact)
     }
 
     private static func sortedUnique(_ values: [String]) -> [String] {
@@ -285,6 +276,6 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
     }
 
     private static func sortedArtifacts(_ artifacts: [ArtifactReference]) -> [ArtifactReference] {
-        artifacts.sorted { $0.id.rawValue < $1.id.rawValue }
+        artifacts.sorted { $0.id.description < $1.id.description }
     }
 }

@@ -17,6 +17,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
         public var requirementPath: String
         public var healthResultsPath: String?
         public var workspaceRootPath: String?
+        public var availabilityInventoryPath: String?
         public var pretty: Bool
 
         public init(arguments: [String]) throws {
@@ -24,6 +25,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
             var requirementPath: String?
             var healthResultsPath: String?
             var workspaceRootPath: String?
+            var availabilityInventoryPath: String?
             var pretty = false
             var cursor = ToolQualificationCLIArgumentCursor(arguments: arguments)
             while let argument = cursor.next() {
@@ -36,6 +38,8 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
                     healthResultsPath = try cursor.requireValue(for: argument)
                 case "--workspace-root":
                     workspaceRootPath = try cursor.requireValue(for: argument)
+                case "--availability-inventory":
+                    availabilityInventoryPath = try cursor.requireValue(for: argument)
                 case "--pretty":
                     pretty = true
                 default:
@@ -54,10 +58,16 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
                     "Missing required argument: --requirement"
                 )
             }
+            guard (workspaceRootPath == nil) == (availabilityInventoryPath == nil) else {
+                throw ToolQualificationCLIError.invalidArguments(
+                    "--workspace-root and --availability-inventory must be provided together"
+                )
+            }
             self.descriptorsPath = descriptorsPath
             self.requirementPath = requirementPath
             self.healthResultsPath = healthResultsPath
             self.workspaceRootPath = workspaceRootPath
+            self.availabilityInventoryPath = availabilityInventoryPath
             self.pretty = pretty
         }
     }
@@ -84,25 +94,30 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
         }
 
         let evaluator = ToolTrustEvaluator()
-        let artifactReader: (any ToolQualificationArtifactReading)?
-        if let workspaceRootPath = options.workspaceRootPath {
-            artifactReader = LocalToolQualificationArtifactReader(
-                workspaceRoot: URL(filePath: workspaceRootPath)
+        let evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)]
+        if let workspaceRootPath = options.workspaceRootPath,
+           let availabilityInventoryPath = options.availabilityInventoryPath {
+            let context = try ToolQualificationCLIArtifactContext(
+                workspaceRootPath: workspaceRootPath,
+                availabilityInventoryPath: availabilityInventoryPath
             )
-        } else {
-            artifactReader = nil
-        }
-        var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
-        for descriptor in descriptors {
-            evaluated.append((
-                descriptor: descriptor,
-                decision: await evaluator.evaluate(
-                    descriptor: descriptor,
+            evaluated = try await context.withReader { reader in
+                await evaluate(
+                    descriptors: descriptors,
                     requirement: requirement,
-                    health: healthResults[descriptor.toolID],
-                    artifactReader: artifactReader
+                    healthResults: healthResults,
+                    evaluator: evaluator,
+                    artifactReader: reader
                 )
-            ))
+            }
+        } else {
+            evaluated = await evaluate(
+                descriptors: descriptors,
+                requirement: requirement,
+                healthResults: healthResults,
+                evaluator: evaluator,
+                artifactReader: nil
+            )
         }
         // Mirrors DesignFlowKernel DefaultFlowOrchestrator.evaluatedToolDecisions:
         // eligible first, then trust level descending, then toolID ascending.
@@ -124,6 +139,7 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
             requirementPath: options.requirementPath,
             healthResultsPath: options.healthResultsPath,
             workspaceRootPath: options.workspaceRootPath,
+            availabilityInventoryPath: options.availabilityInventoryPath,
             requirement: ToolQualificationRegistryEnvelope.RequirementIdentity(
                 kind: requirement.kind,
                 operationID: requirement.operationID,
@@ -148,5 +164,27 @@ public struct ToolQualificationEvaluateRegistryCommand: Sendable {
             standardOutput: output + "\n",
             standardError: ""
         )
+    }
+
+    private func evaluate(
+        descriptors: [ToolDescriptor],
+        requirement: ToolTrustRequirement,
+        healthResults: [String: ToolHealthCheckResult],
+        evaluator: ToolTrustEvaluator,
+        artifactReader: (any ToolQualificationArtifactReading)?
+    ) async -> [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] {
+        var evaluated: [(descriptor: ToolDescriptor, decision: ToolTrustDecision)] = []
+        for descriptor in descriptors {
+            evaluated.append((
+                descriptor: descriptor,
+                decision: await evaluator.evaluate(
+                    descriptor: descriptor,
+                    requirement: requirement,
+                    health: healthResults[descriptor.toolID],
+                    artifactReader: artifactReader
+                )
+            ))
+        }
+        return evaluated
     }
 }
