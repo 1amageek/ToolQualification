@@ -93,3 +93,23 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         )
     }
 }
+
+extension ToolTrustRequirement {
+    static func qualificationRecordRequirement(
+        descriptor: ToolDescriptor,
+        operationID: String
+    ) -> Self {
+        let requiresProductionQualification = descriptor.trustProfile.level
+            == .productionEligible
+        return Self(
+            kind: descriptor.kind,
+            operationID: operationID,
+            minimumLevel: descriptor.trustProfile.level,
+            requirePassingHealthCheck: true,
+            qualificationScope: requiresProductionQualification
+                ? descriptor.trustProfile.processQualification?.scope
+                : nil,
+            requireIndependentQualificationEvidence: requiresProductionQualification
+        )
+    }
+}

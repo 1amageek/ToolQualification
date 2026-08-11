@@ -242,6 +242,56 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         )
     }
 
+    @Test("production record validation reconstructs the issuer's exact trust requirement")
+    func productionRecordIssuerValidatorRoundTrip() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let processEvidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now),
+            reading: fixture.reader,
+            at: now
+        )
+        let descriptor = ToolDescriptor(
+            toolID: processEvidence.toolID,
+            displayName: "Qualified Scan",
+            kind: .rtlVerification,
+            version: processEvidence.scope.toolVersion,
+            capabilities: [ToolCapability(operationID: "scan")],
+            trustProfile: ToolTrustProfile(
+                level: .productionEligible,
+                evidence: processEvidence.corpusEvidence
+                    + processEvidence.oracleEvidence
+                    + processEvidence.healthEvidence,
+                processQualification: processEvidence
+            ),
+            environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
+        )
+        let record = try await DefaultToolQualificationRecordIssuer().issue(
+            recordID: "production-scan-record",
+            descriptor: descriptor,
+            health: ToolHealthCheckResult(
+                toolID: descriptor.toolID,
+                status: .passed
+            ),
+            issuer: fixture.issuer,
+            reading: fixture.reader,
+            issuedAt: now
+        )
+        let reference = try await fixture.store(record: record)
+
+        let validated = try await ToolQualificationRecordValidator().validatedRecord(
+            referencedBy: reference,
+            expectedToolID: descriptor.toolID,
+            reading: fixture.reader
+        )
+
+        #expect(validated == record)
+        #expect(validated.issuanceDecisions.allSatisfy {
+            $0.decision.status == .eligible
+        })
+    }
+
     private func expectCurrentSchema<Value: Decodable>(
         _ type: Value.Type,
         data: Data
@@ -431,6 +481,20 @@ private struct Fixture {
         )
         await reader.insert(
             Self.url("corpus-evidence", root: root),
+            for: reference.id
+        )
+        return reference
+    }
+
+    func store(record: ToolQualificationRecord) async throws -> ArtifactReference {
+        let data = try record.canonicalData()
+        let reference = try Self.artifact(
+            "production-record",
+            root: root,
+            data: data
+        )
+        await reader.insert(
+            Self.url("production-record", root: root),
             for: reference.id
         )
         return reference

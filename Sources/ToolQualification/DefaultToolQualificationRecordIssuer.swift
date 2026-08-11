@@ -24,17 +24,9 @@ public struct DefaultToolQualificationRecordIssuer: ToolQualificationRecordIssui
 
         var decisions: [ToolQualificationRecordDecision] = []
         for capability in descriptor.capabilities.sorted(by: { $0.operationID < $1.operationID }) {
-            let requiresProductionQualification = descriptor.trustProfile.level
-                == .productionEligible
-            let requirement = ToolTrustRequirement(
-                kind: descriptor.kind,
-                operationID: capability.operationID,
-                minimumLevel: descriptor.trustProfile.level,
-                requirePassingHealthCheck: true,
-                qualificationScope: requiresProductionQualification
-                    ? descriptor.trustProfile.processQualification?.scope
-                    : nil,
-                requireIndependentQualificationEvidence: requiresProductionQualification
+            let requirement = ToolTrustRequirement.qualificationRecordRequirement(
+                descriptor: descriptor,
+                operationID: capability.operationID
             )
             let decision = await evaluator.evaluate(
                 descriptor: descriptor,

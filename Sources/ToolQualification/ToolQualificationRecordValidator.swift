@@ -16,6 +16,18 @@ public struct ToolQualificationRecordValidator: ToolQualificationRecordValidatin
         let record = try ToolQualificationRecord.decodeCanonical(
             from: try await artifacts.verifiedData(for: artifact)
         )
+        return try await validatedRecord(
+            record,
+            expectedToolID: expectedToolID,
+            reading: artifacts
+        )
+    }
+
+    public func validatedRecord(
+        _ record: ToolQualificationRecord,
+        expectedToolID: String,
+        reading artifacts: any ToolQualificationArtifactReading
+    ) async throws -> ToolQualificationRecord {
         guard record.descriptor.toolID == expectedToolID else {
             throw ToolQualificationRecordError.toolIdentityMismatch(
                 expected: expectedToolID,
@@ -23,11 +35,9 @@ public struct ToolQualificationRecordValidator: ToolQualificationRecordValidatin
             )
         }
         for capability in record.descriptor.capabilities.sorted(by: { $0.operationID < $1.operationID }) {
-            let requirement = ToolTrustRequirement(
-                kind: record.descriptor.kind,
-                operationID: capability.operationID,
-                minimumLevel: record.descriptor.trustProfile.level,
-                requirePassingHealthCheck: true
+            let requirement = ToolTrustRequirement.qualificationRecordRequirement(
+                descriptor: record.descriptor,
+                operationID: capability.operationID
             )
             let decision = await evaluator.evaluate(
                 descriptor: record.descriptor,
