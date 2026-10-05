@@ -90,3 +90,28 @@ independent-oracle results. Every reference
 carries SHA-256 and byte count. ToolQualification, domain packages, and
 Xcircuite re-verify the referenced bytes before accepting it. Human approval is
 owned by DesignFlowKernel and ReleaseEngine.
+
+## Declared execution identity
+
+`ToolEnvironment.executionProducer` retains the caller's optional
+`CircuiteFoundation.ProducerIdentity` independently of executable or library
+paths. It participates in environment equality, hashing, and Codable round
+trips. An absent producer is unknown; it is never inferred from assets, a path,
+or a version. A current explicit producer therefore differs from a retained
+environment with an absent or mismatched producer.
+
+The domain adapter owns the meaning and measurement of `ProducerIdentity.build`
+and the comparison against the actual execution. This value does not measure an
+image, launch a tool, or establish independent process qualification. Existing
+asset requirements remain separate. Xcircuite uses environment equality when
+admitting retained qualification records; ReleaseEngine separately binds raw
+execution evidence to its qualified process scope.
+
+### Verification and change impact
+
+`ToolEnvironmentExecutionIdentityTests` owns path-independent producer
+serialization, equality and set membership, preservation of existing fields,
+absent-identity decoding, and rejection of malformed producer tokens. Changes
+to this contract require consumer record-adoption checks as well as the domain
+adapter's actual measured-producer gate; neither proof substitutes for process
+qualification.

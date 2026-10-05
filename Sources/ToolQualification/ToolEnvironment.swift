@@ -1,3 +1,5 @@
+import CircuiteFoundation
+import CircuiteFoundationFoundation
 import Foundation
 
 public struct ToolEnvironment: Sendable, Hashable, Codable {
@@ -5,17 +7,20 @@ public struct ToolEnvironment: Sendable, Hashable, Codable {
     public var libraryPath: String?
     public var platform: String
     public var requiredAssets: [ToolAsset]
+    public var executionProducer: ProducerIdentity?
 
     public init(
         executablePath: String? = nil,
         libraryPath: String? = nil,
         platform: String,
-        requiredAssets: [ToolAsset] = []
+        requiredAssets: [ToolAsset] = [],
+        executionProducer: ProducerIdentity? = nil
     ) {
         self.executablePath = executablePath
         self.libraryPath = libraryPath
         self.platform = platform
         self.requiredAssets = requiredAssets
+        self.executionProducer = executionProducer
     }
 
     public var isStructurallyValid: Bool {

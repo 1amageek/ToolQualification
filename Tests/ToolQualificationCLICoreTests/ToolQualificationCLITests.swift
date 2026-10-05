@@ -97,11 +97,11 @@ struct ToolQualificationCLITests {
             withIntermediateDirectories: true
         )
         let input = try writeQualificationArtifact(
-            Data("input".utf8), named: "\(toolID)-input.json", role: .input,
+            Data("\(toolID)-input".utf8), named: "\(toolID)-input.json", role: .input,
             workspaceRoot: workspaceRoot
         )
         let output = try writeQualificationArtifact(
-            Data("output".utf8), named: "\(toolID)-output.json", role: .output,
+            Data("\(toolID)-output".utf8), named: "\(toolID)-output.json", role: .output,
             workspaceRoot: workspaceRoot
         )
         let checkedAt = Date(timeIntervalSince1970: 1_000)
