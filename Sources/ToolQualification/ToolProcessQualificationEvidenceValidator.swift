@@ -32,7 +32,7 @@ public struct ToolProcessQualificationEvidenceValidator: ToolProcessQualificatio
             healthResultArtifacts: evidence.healthEvidence.compactMap(\.artifact),
             inputArtifacts: evidence.inputArtifacts,
             outputArtifacts: evidence.outputArtifacts,
-            qualifiedModelIDs: evidence.qualifiedModelIDs,
+            qualifiedModelIDs: [],
             requiredOperatingCornerIDs: evidence.qualifiedOperatingCornerIDs,
             requirePDKScope: true,
             qualifiedAt: qualifiedAt,

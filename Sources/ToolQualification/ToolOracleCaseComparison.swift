@@ -31,6 +31,7 @@ public struct ToolOracleCaseComparison: Sendable, Hashable, Codable {
         return !caseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && primary.caseID == caseID
             && oracle.caseID == caseID
+            && primary.originalExecutionArtifact != oracle.originalExecutionArtifact
             && primary.coverageTags == oracle.coverageTags
             && !agreementComparisons.isEmpty
             && agreementComparisons.map(\.metricID) == agreementComparisons.map(\.metricID).sorted()

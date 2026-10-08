@@ -596,6 +596,7 @@ private struct QualificationFixture {
     let issuer: ProducerIdentity
     let inputArtifact: ArtifactReference
     let outputArtifact: ArtifactReference
+    let executableArtifact: ArtifactReference
     let scope: ToolQualificationScope
     let reader: InMemoryQualificationArtifactReader
 
@@ -603,10 +604,11 @@ private struct QualificationFixture {
         issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1")
         inputArtifact = try Self.artifact(data: Data([0]))
         outputArtifact = try Self.artifact(data: Data([1]))
+        executableArtifact = try Self.artifact(data: Data([2]))
         scope = ToolQualificationScope(
             implementationID: "native-drc",
             toolVersion: "1.0.0",
-            binaryDigest: String(repeating: "a", count: 64),
+            binaryDigest: executableArtifact.digest.hexadecimalValue,
             algorithmVersion: "native-drc-v1",
             processProfileID: "fixture-process",
             processProfileDigest: String(repeating: "b", count: 64),
@@ -625,6 +627,13 @@ private struct QualificationFixture {
     func corpusEvidence(passing: Bool, canonical: Bool = true) async throws -> ToolEvidence {
         await reader.insert(Data([0]), for: inputArtifact)
         await reader.insert(Data([1]), for: outputArtifact)
+        await reader.insert(Data([2]), for: executableArtifact)
+        let originalData = try ToolQualificationCaseExecution(caseID: "case", executionID: "native-drc-case",
+            producer: ProducerIdentity(kind: .engine, identifier: scope.implementationID, version: scope.toolVersion),
+            executableArtifact: executableArtifact, inputArtifacts: [inputArtifact], modelReceiptArtifacts: [],
+            observedMetrics: ["violation-count": passing ? 0 : 1]).canonicalData()
+        let originalArtifact = try Self.artifact(data: originalData)
+        await reader.insert(originalData, for: originalArtifact)
         let result = ToolCorpusQualificationResult(
             resultID: "corpus-result",
             qualificationID: "qualification",
@@ -632,9 +641,10 @@ private struct QualificationFixture {
             scope: scope,
             issuer: issuer,
             inputArtifacts: [inputArtifact],
-            outputArtifacts: [outputArtifact],
+            outputArtifacts: [outputArtifact, originalArtifact],
             cases: [ToolQualificationCaseOutcome(
                 caseID: "case",
+                originalExecutionArtifact: originalArtifact,
                 coverageTags: ["minimum-spacing"],
                 comparisons: [ToolQualificationMetricComparison(
                     metricID: "violation-count",

@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolCorpusQualificationResult: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let resultID: String
@@ -94,6 +94,7 @@ public struct ToolCorpusQualificationResult: Sendable, Hashable, Codable {
             && !qualificationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !toolID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && scope.isComplete
+            && toolID == scope.implementationID
             && !inputArtifacts.isEmpty
             && inputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
             && ToolQualificationArtifactValidation.hasDistinctIdentities(inputArtifacts)
@@ -128,8 +129,10 @@ public struct ToolCorpusQualificationResult: Sendable, Hashable, Codable {
             cases: cases.map {
             ToolQualificationCaseOutcome(
                 caseID: $0.caseID,
+                originalExecutionArtifact: $0.originalExecutionArtifact,
                 coverageTags: $0.coverageTags,
-                comparisons: $0.comparisons
+                comparisons: $0.comparisons,
+                schemaVersion: $0.schemaVersion
             )
             },
             checkedAt: checkedAt,

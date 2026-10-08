@@ -9,6 +9,19 @@ import CircuiteFoundationFoundation
 
 @Suite("Tool process qualification evidence builder")
 struct ToolProcessQualificationEvidenceBuilderTests {
+    @Test("requested model IDs cannot qualify without executed model receipts")
+    func rejectsRequestedModelWithoutExecutedReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let request = fixture.request(now: now, qualifiedModelIDs: ["never-executed-model"])
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                request, reading: fixture.reader, at: now
+            )
+        }
+    }
+
     @Test("builder verifies and promotes a complete independent artifact graph")
     func buildsQualifiedRecord() async throws {
         let fixture = try Fixture()
@@ -27,6 +40,336 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         #expect(evidence.hasIndependentOracleEvidence)
         #expect(evidence.evidenceArtifactIDs == request.evidenceArtifacts.map { $0.id.description }.sorted())
         #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
+    }
+
+    @Test("coverage is derived independently of requested model IDs")
+    func derivesActualModelCoverageWithoutRequestedIDs() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
+        try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+    }
+
+    @Test("domain CLI tool producers retain valid original execution and model receipts")
+    func acceptsBoundToolProducer() async throws {
+        let fixture = try Fixture(producerKind: .tool)
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        #expect(evidence.qualifiedModelIDs == ["process-model-a", "process-model-b"])
+        try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+    }
+
+    @Test("non-executing producers cannot emit original execution or consumption receipts",
+        arguments: ["human", "agent", "library"])
+    func refusesNonExecutingProducerKind(_ rawKind: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let original = try fixture.execution(oracle: false)
+        let receipt = try fixture.receipt(oracle: false)
+        let producer = try ProducerIdentity(kind: ProducerKind(rawValue: rawKind),
+            identifier: original.producer.identifier, version: original.producer.version)
+        let invalidExecution = ToolQualificationCaseExecution(caseID: original.caseID,
+            executionID: original.executionID, producer: producer, executableArtifact: original.executableArtifact,
+            inputArtifacts: original.inputArtifacts, modelReceiptArtifacts: original.modelReceiptArtifacts,
+            observedMetrics: original.observedMetrics)
+        let invalidReceipt = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID,
+            executionID: receipt.executionID, producer: producer, modelID: receipt.modelID,
+            sourceArtifact: receipt.sourceArtifact, selectedModelIdentifier: receipt.selectedModelIdentifier,
+            consumedInstanceIDs: receipt.consumedInstanceIDs, inputArtifacts: receipt.inputArtifacts,
+            modelVersion: receipt.modelVersion, resolvedParameters: receipt.resolvedParameters)
+        #expect(!invalidExecution.isStructurallyValid)
+        #expect(!invalidReceipt.isStructurallyValid)
+        #expect(throws: ToolProcessQualificationEvidenceBuildError.self) { _ = try invalidExecution.canonicalData() }
+        #expect(throws: ToolProcessQualificationEvidenceBuildError.self) { _ = try invalidReceipt.canonicalData() }
+    }
+
+    @Test("model-free executions need no invented model receipts")
+    func acceptsModelFreeExecutionAndRefusesRequestedModel() async throws {
+        let fixture = try Fixture(modelIDs: [])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        #expect(evidence.qualifiedModelIDs.isEmpty)
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.unexecutedModels(["unused"])) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                fixture.request(now: now, qualifiedModelIDs: ["unused"]), reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("oracle primary must exactly join the corpus primary")
+    func rejectsOraclePrimaryWithDifferentComparison() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let primary = fixture.outcome(original: fixture.output, expected: 0.1, tolerance: 0.2)
+        var request = fixture.request(now: now)
+        request.oracleResultArtifacts = [try await fixture.storeOracle(primary: primary)]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "oracle primary does not exactly match the corpus primary")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("passing aggregate comparisons cannot forge original observations")
+    func rejectsForgedOriginalObservations() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        var request = fixture.request(now: now)
+        request.corpusResultArtifacts = [try await fixture.storeCorpus(
+            outcome: fixture.outcome(original: fixture.output, observed: 1, expected: 1))]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "original observations, executable, producer or retained inventory does not match")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("the same case ID cannot hide conflicting corpus outcomes")
+    func rejectsConflictingDuplicateCases() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        var request = fixture.request(now: now)
+        request.corpusResultArtifacts.append(try await fixture.storeCorpus(
+            outcome: fixture.outcome(original: fixture.output, expected: 0.1, tolerance: 0.2)))
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.conflictingCase("case-1")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("every executed corpus case needs a corresponding oracle case")
+    func rejectsMissingMatchedCase() async throws {
+        let fixture = try Fixture(modelIDs: [])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let original = try fixture.execution(oracle: false)
+        let second = try await fixture.store("second-case", data: ToolQualificationCaseExecution(
+            caseID: "case-2", executionID: "second-primary-run", producer: original.producer,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
+        let outcome = ToolQualificationCaseOutcome(caseID: "case-2", originalExecutionArtifact: second,
+            coverageTags: ["fixture"], comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)])
+        var request = fixture.request(now: now)
+        request.outputArtifacts.append(second)
+        request.corpusResultArtifacts = [try await fixture.store("corpus-second-case", data: ToolCorpusQualificationResult(
+            resultID: "corpus-second-case", qualificationID: "qualification-1", toolID: fixture.scope.implementationID,
+            scope: fixture.scope, issuer: fixture.issuer, inputArtifacts: fixture.inputs,
+            outputArtifacts: [fixture.output, second],
+            cases: [fixture.outcome(original: fixture.output), outcome], checkedAt: now).canonicalData())]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.missingCase("case-2")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("original input and executable identities cannot be substituted")
+    func rejectsDifferentOriginalInputOrExecutable() async throws {
+        let fixture = try Fixture(modelIDs: [])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let original = try fixture.execution(oracle: true)
+        let otherInput = try await fixture.store("different-case-input", data: Data("different input".utf8))
+        let differentInputOutput = try await fixture.store("different-input-output", data: ToolQualificationCaseExecution(
+            caseID: original.caseID, executionID: original.executionID, producer: original.producer,
+            executableArtifact: original.executableArtifact, inputArtifacts: [otherInput],
+            modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
+        var inputRequest = fixture.request(now: now)
+        inputRequest.inputArtifacts.append(otherInput)
+        inputRequest.outputArtifacts.append(differentInputOutput)
+        inputRequest.oracleResultArtifacts = [try await fixture.storeOracle(
+            oracle: fixture.outcome(original: differentInputOutput), additionalInputs: [otherInput])]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(inputRequest, reading: fixture.reader, at: now)
+        }
+        let wrongExecutableOutput = try await fixture.store("wrong-executable-output", data: ToolQualificationCaseExecution(
+            caseID: original.caseID, executionID: original.executionID, producer: original.producer,
+            executableArtifact: fixture.identity.toolExecutable, inputArtifacts: original.inputArtifacts,
+            modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
+        var executableRequest = fixture.request(now: now)
+        executableRequest.outputArtifacts.append(wrongExecutableOutput)
+        executableRequest.oracleResultArtifacts = [try await fixture.storeOracle(oracle: fixture.outcome(original: wrongExecutableOutput))]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "original observations, executable, producer or retained inventory does not match")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(executableRequest, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("independent model source, version, selection and conditions must agree",
+        arguments: ["geometry", "version", "selection", "source"])
+    func rejectsDifferentResolvedModelConditions(_ mismatch: String) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let original = try fixture.execution(oracle: true)
+        let receipt = try fixture.receipt(oracle: true)
+        let changedReceipt = ToolQualificationModelExecutionReceipt(
+            caseID: receipt.caseID, executionID: receipt.executionID, producer: receipt.producer,
+            modelID: receipt.modelID, sourceArtifact: mismatch == "source" ? fixture.input : receipt.sourceArtifact,
+            selectedModelIdentifier: mismatch == "selection" ? "different-selected-bin" : receipt.selectedModelIdentifier,
+            consumedInstanceIDs: receipt.consumedInstanceIDs,
+            inputArtifacts: receipt.inputArtifacts, modelVersion: mismatch == "version" ? nil : receipt.modelVersion,
+            resolvedParameters: mismatch == "geometry" ? ["width": 0.000002, "temperature": 300] : receipt.resolvedParameters)
+        let reference = try await fixture.store("changed-receipt", data: changedReceipt.canonicalData())
+        let changedExecution = ToolQualificationCaseExecution(
+            caseID: original.caseID, executionID: original.executionID, producer: original.producer,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            modelReceiptArtifacts: [reference] + Array(fixture.oracleReceipts.dropFirst()),
+            observedMetrics: original.observedMetrics)
+        let output = try await fixture.store("changed-oracle-output", data: changedExecution.canonicalData())
+        var request = fixture.request(now: now)
+        request.outputArtifacts += [reference, output]
+        request.oracleResultArtifacts = [try await fixture.storeOracle(
+            oracle: fixture.outcome(original: output), additionalOracleOutputs: [reference])]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "primary and oracle selected model source, version, instances or resolved conditions differ")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("independent output artifacts cannot alias an execution identity")
+    func rejectsAliasedExecutionIdentity() async throws {
+        let fixture = try Fixture(modelIDs: [])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let primary = try fixture.execution(oracle: false)
+        let oracle = try fixture.execution(oracle: true)
+        let output = try await fixture.store("aliased-oracle-output", data: ToolQualificationCaseExecution(
+            caseID: oracle.caseID, executionID: primary.executionID, producer: oracle.producer,
+            executableArtifact: oracle.executableArtifact, inputArtifacts: oracle.inputArtifacts,
+            modelReceiptArtifacts: [], observedMetrics: oracle.observedMetrics).canonicalData())
+        var request = fixture.request(now: now)
+        request.outputArtifacts.append(output)
+        request.oracleResultArtifacts = [try await fixture.storeOracle(oracle: fixture.outcome(original: output))]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("conflicting receipts cannot consume the same model instance twice")
+    func rejectsDuplicateConsumedModelInstance() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let original = try fixture.execution(oracle: false)
+        let receipt = try fixture.receipt(oracle: false)
+        let duplicate = try await fixture.store("duplicate-receipt", data: ToolQualificationModelExecutionReceipt(
+            caseID: receipt.caseID, executionID: receipt.executionID, producer: receipt.producer,
+            modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
+            selectedModelIdentifier: "conflicting-selected-model", consumedInstanceIDs: receipt.consumedInstanceIDs,
+            inputArtifacts: receipt.inputArtifacts, modelVersion: receipt.modelVersion,
+            resolvedParameters: receipt.resolvedParameters).canonicalData())
+        let output = try await fixture.store("duplicate-receipt-output", data: ToolQualificationCaseExecution(
+            caseID: original.caseID, executionID: original.executionID, producer: original.producer,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            modelReceiptArtifacts: original.modelReceiptArtifacts + [duplicate],
+            observedMetrics: original.observedMetrics).canonicalData())
+        var request = fixture.request(now: now)
+        request.outputArtifacts += [output, duplicate]
+        request.corpusResultArtifacts = [try await fixture.store("duplicate-receipt-corpus", data: ToolCorpusQualificationResult(
+            resultID: "duplicate-receipt-corpus", qualificationID: "qualification-1", toolID: fixture.scope.implementationID,
+            scope: fixture.scope, issuer: fixture.issuer, inputArtifacts: fixture.inputs,
+            outputArtifacts: [output, duplicate] + fixture.primaryReceipts,
+            cases: [fixture.outcome(original: output)], checkedAt: now).canonicalData())]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "receipt has a different execution/input binding or duplicates a consumed instance")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("retained model receipt bytes are independently verified")
+    func rejectsAlteredModelReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        try Data("altered receipt".utf8).write(
+            to: fixture.root.appending(path: "qualification/primary-run-receipt-0.json"), options: .atomic)
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
+            fixture.primaryReceipts[0].id.description)) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                fixture.request(now: now), reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("missing nested receipt and source bindings fail closed")
+    func rejectsMissingNestedReceiptsAndSources() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        var missingReceipt = fixture.request(now: now)
+        missingReceipt.outputArtifacts.removeAll { $0 == fixture.primaryReceipts[0] }
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(missingReceipt, reading: fixture.reader, at: now)
+        }
+        var missingSource = fixture.request(now: now)
+        missingSource.inputArtifacts.removeAll { $0 == fixture.modelSource }
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(missingSource, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("validator does not use a forged model claim as reconstruction input")
+    func rejectsForgedEvidenceModelCoverage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(evidence)) as? [String: Any])
+        object["qualifiedModelIDs"] = evidence.qualifiedModelIDs + ["forged-model"]
+        let forged = try JSONDecoder().decode(ToolProcessQualificationEvidence.self,
+            from: JSONSerialization.data(withJSONObject: object))
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            try await ToolProcessQualificationEvidenceValidator().validate(forged, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("validator independently checks original outputs and model sources")
+    func validatorRejectsChangedOriginalOutputAndModelSource() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        let originalURL = fixture.root.appending(path: "qualification/output.json")
+        let originalBytes = try Data(contentsOf: originalURL)
+        try Data("changed original observations".utf8).write(to: originalURL, options: .atomic)
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(fixture.output.id.description)) {
+            try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+        }
+        try originalBytes.write(to: originalURL, options: .atomic)
+        try Data("changed model source".utf8).write(
+            to: fixture.root.appending(path: "qualification/model-source.json"), options: .atomic)
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(fixture.modelSource.id.description)) {
+            try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("receipts preserve unknown version and refuse unused or nonfinite model claims")
+    func receiptAdmissionRequiresConsumptionAndFiniteConditions() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let receipt = try fixture.receipt(oracle: false)
+        let unknown = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID, executionID: receipt.executionID,
+            producer: receipt.producer, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
+            selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstanceIDs: receipt.consumedInstanceIDs,
+            inputArtifacts: receipt.inputArtifacts, resolvedParameters: receipt.resolvedParameters)
+        let decoded = try ToolQualificationModelExecutionReceipt.decodeCanonical(from: unknown.canonicalData())
+        #expect(decoded.modelVersion == nil)
+        for (instances, parameters) in [([], ["temperature": 300.0]), (["instance-0"], ["temperature": Double.infinity]), (["instance-0", "instance-0"], ["temperature": 300.0])] {
+            let invalid = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID, executionID: receipt.executionID,
+                producer: receipt.producer, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
+                selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstanceIDs: instances,
+                inputArtifacts: receipt.inputArtifacts, resolvedParameters: parameters)
+            #expect(!invalid.isStructurallyValid)
+            #expect(throws: ToolProcessQualificationEvidenceBuildError.self) { _ = try invalid.canonicalData() }
+        }
     }
 
     @Test("builder requires corpus and independent oracle coverage for every requested corner")
@@ -160,10 +503,10 @@ struct ToolProcessQualificationEvidenceBuilderTests {
             oracleToolID: "independent-scan-oracle",
             scope: fixture.scope,
             issuer: fixture.issuer,
-            inputArtifacts: [fixture.input],
+            inputArtifacts: fixture.inputs,
             primaryOutputArtifacts: [fixture.output],
             oracleOutputArtifacts: [fixture.output],
-            cases: [Fixture.passingOracleCase("case-1")],
+            cases: [fixture.passingOracleCase()],
             checkedAt: Date(timeIntervalSince1970: 1_000)
         )
 
@@ -175,8 +518,11 @@ struct ToolProcessQualificationEvidenceBuilderTests {
 
     @Test("oracle agreement values must be bound to both case outcomes")
     func rejectsUnboundOracleAgreementValues() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
         let primary = ToolQualificationCaseOutcome(
             caseID: "case-1",
+            originalExecutionArtifact: fixture.output,
             coverageTags: ["fixture"],
             comparisons: [ToolQualificationMetricComparison(
                 metricID: "metric",
@@ -186,6 +532,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         )
         let oracle = ToolQualificationCaseOutcome(
             caseID: "case-1",
+            originalExecutionArtifact: fixture.oracleOutput,
             coverageTags: ["fixture"],
             comparisons: [ToolQualificationMetricComparison(
                 metricID: "metric",
@@ -240,6 +587,25 @@ struct ToolProcessQualificationEvidenceBuilderTests {
             ToolProcessQualificationEvidence.self,
             data: JSONEncoder().encode(evidence)
         )
+        try expectCurrentSchema(ToolQualificationCaseOutcome.self,
+            data: JSONEncoder().encode(fixture.outcome(original: fixture.output)))
+        try expectCurrentSchema(ToolQualificationCaseExecution.self,
+            data: JSONEncoder().encode(fixture.execution(oracle: false)))
+        try expectCurrentSchema(ToolQualificationModelExecutionReceipt.self,
+            data: JSONEncoder().encode(fixture.receipt(oracle: false)))
+    }
+
+    @Test("legacy case outcomes without original execution bindings are rejected")
+    func rejectsLegacyOutcomeWithoutOriginalExecution() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var object = try #require(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(fixture.outcome(original: fixture.output))) as? [String: Any])
+        object.removeValue(forKey: "originalExecutionArtifact")
+        let data = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(ToolQualificationCaseOutcome.self, from: data)
+        }
     }
 
     @Test("production record validation reconstructs the issuer's exact trust requirement")
@@ -322,10 +688,13 @@ private struct Fixture {
     let input: ArtifactReference
     let output: ArtifactReference
     let oracleOutput: ArtifactReference
+    let modelSource: ArtifactReference
+    let primaryReceipts: [ArtifactReference]
+    let oracleReceipts: [ArtifactReference]
     let issuer: ProducerIdentity
     let reader: VerifiedFileQualificationArtifactReader
 
-    init() throws {
+    init(modelIDs: [String] = ["process-model-a", "process-model-b"], producerKind: ProducerKind = .engine) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("tool-qualification-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -342,8 +711,7 @@ private struct Fixture {
             oracleExecutable: oracleTool
         )
         input = try Self.artifact("input", root: root)
-        output = try Self.artifact("output", root: root)
-        oracleOutput = try Self.artifact("oracle-output", root: root)
+        modelSource = try Self.artifact("model-source", root: root)
         issuer = try ProducerIdentity(
             kind: .engine,
             identifier: "qualification-runner",
@@ -365,6 +733,23 @@ private struct Fixture {
                 binaryDigest: oracleTool.digest.hexadecimalValue
             )
         )
+        let inputs = [input, modelSource]
+        let primaryProducer = try ProducerIdentity(kind: producerKind, identifier: scope.implementationID, version: scope.toolVersion)
+        let oracleProducer = try ProducerIdentity(kind: producerKind, identifier: "independent-scan-oracle", version: "2.0.0")
+        primaryReceipts = try Self.receipts(root: root, inputs: inputs, source: modelSource,
+            producer: primaryProducer, executionID: "primary-run", modelIDs: modelIDs)
+        oracleReceipts = try Self.receipts(root: root, inputs: inputs, source: modelSource,
+            producer: oracleProducer, executionID: "oracle-run", modelIDs: modelIDs)
+        output = try Self.artifact("output", root: root, data: ToolQualificationCaseExecution(
+            caseID: "case-1", executionID: "primary-run", producer: primaryProducer,
+            executableArtifact: tool, inputArtifacts: inputs, modelReceiptArtifacts: primaryReceipts,
+            observedMetrics: ["case-result": 0]
+        ).canonicalData())
+        oracleOutput = try Self.artifact("oracle-output", root: root, data: ToolQualificationCaseExecution(
+            caseID: "case-1", executionID: "oracle-run", producer: oracleProducer,
+            executableArtifact: oracleTool, inputArtifacts: inputs, modelReceiptArtifacts: oracleReceipts,
+            observedMetrics: ["case-result": 0]
+        ).canonicalData())
         let checkedAt = Date(timeIntervalSince1970: 1_000)
         corpus = try Self.artifact(
             "corpus-evidence",
@@ -375,12 +760,12 @@ private struct Fixture {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
-                outputArtifacts: [output],
+                inputArtifacts: inputs,
+                outputArtifacts: [output] + primaryReceipts,
                 coverage: ToolQualificationCoverage(
                     operatingCornerIDs: ["tt", "ss", "ff"]
                 ),
-                cases: [Self.passingCase("case-1")],
+                cases: [Self.passingCase("case-1", original: output)],
                 checkedAt: checkedAt
             ).canonicalData()
         )
@@ -394,13 +779,13 @@ private struct Fixture {
                 oracleToolID: "independent-scan-oracle",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
-                primaryOutputArtifacts: [output],
-                oracleOutputArtifacts: [oracleOutput],
+                inputArtifacts: inputs,
+                primaryOutputArtifacts: [output] + primaryReceipts,
+                oracleOutputArtifacts: [oracleOutput] + oracleReceipts,
                 coverage: ToolQualificationCoverage(
                     operatingCornerIDs: ["tt", "ss", "ff"]
                 ),
-                cases: [Self.passingOracleCase("case-1")],
+                cases: [Self.passingOracleCase("case-1", primary: output, oracle: oracleOutput)],
                 checkedAt: checkedAt
             ).canonicalData()
         )
@@ -413,12 +798,12 @@ private struct Fixture {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
+                inputArtifacts: inputs,
                 outputArtifacts: [output],
                 checkedAt: checkedAt
             ).canonicalData()
         )
-        reader = VerifiedFileQualificationArtifactReader(urlsByArtifactID: [
+        var urlsByArtifactID: [ArtifactID: URL] = [
             tool.id: Self.url("tool", root: root),
             process.id: Self.url("process", root: root),
             pdk.id: Self.url("pdk", root: root),
@@ -430,7 +815,69 @@ private struct Fixture {
             corpus.id: Self.url("corpus-evidence", root: root),
             oracle.id: Self.url("oracle-evidence", root: root),
             health.id: Self.url("health-evidence", root: root),
-        ])
+            modelSource.id: Self.url("model-source", root: root),
+        ]
+        for (index, receipt) in primaryReceipts.enumerated() {
+            urlsByArtifactID[receipt.id] = Self.url("primary-run-receipt-\(index)", root: root)
+        }
+        for (index, receipt) in oracleReceipts.enumerated() {
+            urlsByArtifactID[receipt.id] = Self.url("oracle-run-receipt-\(index)", root: root)
+        }
+        reader = VerifiedFileQualificationArtifactReader(urlsByArtifactID: urlsByArtifactID)
+    }
+
+    var inputs: [ArtifactReference] { [input, modelSource] }
+    var outputs: [ArtifactReference] { [output, oracleOutput] + primaryReceipts + oracleReceipts }
+
+    func passingOracleCase() -> ToolOracleCaseComparison {
+        Self.passingOracleCase("case-1", primary: output, oracle: oracleOutput)
+    }
+
+    func outcome(original: ArtifactReference, observed: Double = 0, expected: Double = 0,
+        tolerance: Double = 0) -> ToolQualificationCaseOutcome {
+        ToolQualificationCaseOutcome(caseID: "case-1", originalExecutionArtifact: original,
+            coverageTags: ["fixture"], comparisons: [ToolQualificationMetricComparison(
+                metricID: "case-result", observed: observed, expected: expected, absoluteTolerance: tolerance)])
+    }
+
+    func execution(oracle: Bool) throws -> ToolQualificationCaseExecution {
+        try ToolQualificationCaseExecution.decodeCanonical(from: Data(contentsOf:
+            Self.url(oracle ? "oracle-output" : "output", root: root)))
+    }
+
+    func receipt(oracle: Bool) throws -> ToolQualificationModelExecutionReceipt {
+        try ToolQualificationModelExecutionReceipt.decodeCanonical(from: Data(contentsOf:
+            Self.url(oracle ? "oracle-run-receipt-0" : "primary-run-receipt-0", root: root)))
+    }
+
+    func store(_ name: String, data: Data) async throws -> ArtifactReference {
+        let reference = try Self.artifact(name, root: root, data: data)
+        await reader.insert(Self.url(name, root: root), for: reference.id)
+        return reference
+    }
+
+    func storeCorpus(outcome: ToolQualificationCaseOutcome) async throws -> ArtifactReference {
+        try await store("changed-corpus", data: ToolCorpusQualificationResult(
+            resultID: "changed-corpus", qualificationID: "qualification-1", toolID: scope.implementationID,
+            scope: scope, issuer: issuer, inputArtifacts: inputs,
+            outputArtifacts: [outcome.originalExecutionArtifact] + primaryReceipts,
+            cases: [outcome], checkedAt: Date(timeIntervalSince1970: 1_000)).canonicalData())
+    }
+
+    func storeOracle(primary: ToolQualificationCaseOutcome? = nil, oracle: ToolQualificationCaseOutcome? = nil,
+        additionalOracleOutputs: [ArtifactReference] = [], additionalInputs: [ArtifactReference] = []) async throws -> ArtifactReference {
+        let primaryOutcome = primary ?? outcome(original: output)
+        let oracleOutcome = oracle ?? outcome(original: oracleOutput)
+        return try await store("changed-oracle", data: ToolOracleQualificationResult(
+            resultID: "changed-oracle", qualificationID: "qualification-1", primaryToolID: scope.implementationID,
+            oracleToolID: "independent-scan-oracle", scope: scope, issuer: issuer, inputArtifacts: inputs + additionalInputs,
+            primaryOutputArtifacts: [primaryOutcome.originalExecutionArtifact] + primaryReceipts,
+            oracleOutputArtifacts: [oracleOutcome.originalExecutionArtifact] + oracleReceipts + additionalOracleOutputs,
+            cases: [ToolOracleCaseComparison(caseID: "case-1", primary: primaryOutcome, oracle: oracleOutcome,
+                agreementComparisons: [ToolOracleMetricComparison(metricID: "case-result",
+                    primaryObserved: primaryOutcome.comparisons[0].observed,
+                    oracleObserved: oracleOutcome.comparisons[0].observed)])],
+            checkedAt: Date(timeIntervalSince1970: 1_000)).canonicalData())
     }
 
     func request(
@@ -446,8 +893,8 @@ private struct Fixture {
             corpusResultArtifacts: [corpus],
             oracleResultArtifacts: [oracle],
             healthResultArtifacts: [health],
-            inputArtifacts: [input],
-            outputArtifacts: [output, oracleOutput],
+            inputArtifacts: inputs,
+            outputArtifacts: outputs,
             qualifiedModelIDs: qualifiedModelIDs,
             requiredOperatingCornerIDs: requiredOperatingCornerIDs,
             qualifiedAt: now.addingTimeInterval(-10),
@@ -465,10 +912,11 @@ private struct Fixture {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
-                outputArtifacts: [output],
+                inputArtifacts: inputs,
+                outputArtifacts: [output] + primaryReceipts,
                 cases: [ToolQualificationCaseOutcome(
                     caseID: "case-1",
+                    originalExecutionArtifact: output,
                     coverageTags: ["fixture"],
                     comparisons: [ToolQualificationMetricComparison(
                         metricID: "case-result",
@@ -508,9 +956,10 @@ private struct Fixture {
         }
     }
 
-    private static func passingCase(_ caseID: String) -> ToolQualificationCaseOutcome {
+    private static func passingCase(_ caseID: String, original: ArtifactReference) -> ToolQualificationCaseOutcome {
         ToolQualificationCaseOutcome(
             caseID: caseID,
+            originalExecutionArtifact: original,
             coverageTags: ["fixture"],
             comparisons: [ToolQualificationMetricComparison(
                 metricID: "case-result",
@@ -520,17 +969,32 @@ private struct Fixture {
         )
     }
 
-    fileprivate static func passingOracleCase(_ caseID: String) -> ToolOracleCaseComparison {
+    private static func passingOracleCase(_ caseID: String, primary: ArtifactReference, oracle: ArtifactReference) -> ToolOracleCaseComparison {
         ToolOracleCaseComparison(
             caseID: caseID,
-            primary: passingCase(caseID),
-            oracle: passingCase(caseID),
+            primary: passingCase(caseID, original: primary),
+            oracle: passingCase(caseID, original: oracle),
             agreementComparisons: [ToolOracleMetricComparison(
                 metricID: "case-result",
                 primaryObserved: 0,
                 oracleObserved: 0
             )]
         )
+    }
+
+    private static func receipts(
+        root: URL, inputs: [ArtifactReference], source: ArtifactReference,
+        producer: ProducerIdentity, executionID: String, modelIDs: [String]
+    ) throws -> [ArtifactReference] {
+        try modelIDs.enumerated().map { index, modelID in
+            try artifact("\(executionID)-receipt-\(index)", root: root,
+                data: ToolQualificationModelExecutionReceipt(
+                    caseID: "case-1", executionID: executionID, producer: producer,
+                    modelID: modelID, sourceArtifact: source, selectedModelIdentifier: "selected-\(modelID)",
+                    consumedInstanceIDs: ["instance-\(index)"], inputArtifacts: inputs,
+                    modelVersion: "declared-v1", resolvedParameters: ["width": 0.000001, "temperature": 300]
+                ).canonicalData())
+        }
     }
 
     private static func artifact(

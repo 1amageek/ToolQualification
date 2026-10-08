@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 6
+    public static let currentSchemaVersion = 7
 
     public var schemaVersion: Int
     public var qualificationID: String
@@ -14,6 +14,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
     public var healthResultArtifacts: [ArtifactReference]
     public var inputArtifacts: [ArtifactReference]
     public var outputArtifacts: [ArtifactReference]
+    /// Desired model coverage; the builder derives actual coverage from executions.
     public var qualifiedModelIDs: [String]
     public var requiredOperatingCornerIDs: [String]
     public var requirePDKScope: Bool
@@ -153,7 +154,7 @@ public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, 
     }
 
     private static func sortedUnique(_ values: [String]) -> [String] {
-        Array(Set(values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })).sorted()
+        Array(Set(values)).sorted()
     }
 
     public var evidenceArtifacts: [ArtifactReference] {

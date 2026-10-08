@@ -556,8 +556,13 @@ struct ToolQualificationCLITests {
             )
         )
         let input = try validationArtifact("input", root: root)
-        let output = try validationArtifact("output", root: root)
-        let oracleOutput = try validationArtifact("oracle-output", root: root)
+        let executionFixture = try ToolQualificationCLIArtifactFixture()
+        let output = try executionFixture.writeExecution(root: root, caseID: "case", executionID: "output",
+            implementationID: scope.implementationID, version: scope.toolVersion, executable: tool,
+            inputs: [input], source: input, observations: ["case-result": 0]).original
+        let oracleOutput = try executionFixture.writeExecution(root: root, caseID: "case", executionID: "oracle-output",
+            implementationID: "calibre-pex", version: "2026.1", executable: oracleTool,
+            inputs: [input], source: input, observations: ["case-result": 0]).original
         let issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1.0.0")
         let checkedAt = Date(timeIntervalSince1970: 120)
         let corpus = try validationArtifact(
@@ -573,6 +578,7 @@ struct ToolQualificationCLITests {
                 outputArtifacts: [output],
                 cases: [ToolQualificationCaseOutcome(
                     caseID: "case",
+                    originalExecutionArtifact: output,
                     coverageTags: ["fixture"],
                     comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                 )],
@@ -596,11 +602,13 @@ struct ToolQualificationCLITests {
                     caseID: "case",
                     primary: ToolQualificationCaseOutcome(
                         caseID: "case",
+                        originalExecutionArtifact: output,
                         coverageTags: ["fixture"],
                         comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case",
+                        originalExecutionArtifact: oracleOutput,
                         coverageTags: ["fixture"],
                         comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),

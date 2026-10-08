@@ -15,6 +15,10 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
     case artifactIntegrityFailed(String)
     case invalidValidityWindow
     case notValidAt
+    case caseBindingMismatch(caseID: String, reason: String)
+    case conflictingCase(String)
+    case missingCase(String)
+    case unexecutedModels([String])
 
     public var errorDescription: String? {
         switch self {
@@ -46,6 +50,14 @@ public enum ToolProcessQualificationEvidenceBuildError: Error, LocalizedError, S
             return "qualifiedAt must precede expiresAt"
         case .notValidAt:
             return "the requested evaluation time is outside the qualification validity window"
+        case .caseBindingMismatch(let caseID, let reason):
+            return "case \(caseID) execution binding failed: \(reason)"
+        case .conflictingCase(let caseID):
+            return "conflicting qualification case \(caseID)"
+        case .missingCase(let caseID):
+            return "qualification case \(caseID) has no matched corpus and oracle execution"
+        case .unexecutedModels(let modelIDs):
+            return "requested models have no matched executed receipts: \(modelIDs.joined(separator: ", "))"
         }
     }
 }

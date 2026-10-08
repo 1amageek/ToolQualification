@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 6
 
     public let schemaVersion: Int
     public let qualificationID: String
@@ -187,6 +187,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && Set(inputArtifacts.map { $0.id.description })
                 .isDisjoint(with: Set(outputArtifacts.map { $0.id.description }))
             && qualifiedOperatingCornerIDs.allSatisfy(Self.isToken)
+            && qualifiedModelIDs.allSatisfy(Self.isToken)
     }
 
     public func isQualified(at date: Date, requirePDKScope: Bool = true) -> Bool {

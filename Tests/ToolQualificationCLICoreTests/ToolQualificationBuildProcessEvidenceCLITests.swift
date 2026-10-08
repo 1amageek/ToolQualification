@@ -39,6 +39,48 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         )
         #expect(evidence.isQualified(at: now, requirePDKScope: true))
         #expect(evidence.hasIndependentOracleEvidence)
+        #expect(evidence.qualifiedModelIDs == ["process-model-a"])
+        #expect(evidence.outputArtifacts.count == 4)
+    }
+
+    @Test("CLI refuses requested model coverage absent from original execution receipts")
+    func refusesUnexecutedRequestedModel() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { remove(directory) }
+        let now = Date(timeIntervalSince1970: 1_000)
+        var request = try makeRequest(now: now, root: directory, independent: true)
+        request.qualifiedModelIDs = ["never-executed-model"]
+        let inventoryURL = try ToolQualificationCLIArtifactFixture().writeQualificationDirectoryInventory(root: directory)
+        let inputURL = directory.appending(path: "build-request.json")
+        let outputURL = directory.appending(path: "process-evidence.json")
+        try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
+        let result = await ToolQualificationCLI.invoke(arguments: ["build-process-evidence",
+            "--input", inputURL.path, "--output", outputURL.path, "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path, "--at", "1000"])
+        #expect(result.exitCode == 2)
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+        #expect(result.standardOutput.contains("never-executed-model"))
+        #expect(result.standardOutput.contains("matched executed receipts"))
+    }
+
+    @Test("CLI verifies nested original receipt bytes before writing evidence")
+    func refusesAlteredOriginalReceipt() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { remove(directory) }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let request = try makeRequest(now: now, root: directory, independent: true)
+        let inventoryURL = try ToolQualificationCLIArtifactFixture().writeQualificationDirectoryInventory(root: directory)
+        let inputURL = directory.appending(path: "build-request.json")
+        let outputURL = directory.appending(path: "process-evidence.json")
+        try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
+        try Data("altered receipt".utf8).write(
+            to: directory.appending(path: "qualification/output-receipt-0.json"), options: .atomic)
+        let result = await ToolQualificationCLI.invoke(arguments: ["build-process-evidence",
+            "--input", inputURL.path, "--output", outputURL.path, "--workspace-root", directory.path,
+            "--availability-inventory", inventoryURL.path, "--at", "1000"])
+        #expect(result.exitCode == 2)
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+        #expect(result.standardOutput.contains("artifact"))
     }
 
     @Test("build-process-evidence derives and rejects a non-independent oracle")
@@ -123,8 +165,19 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             )
         )
         let input = try artifact("input", root: root)
-        let output = try artifact("output", root: root)
-        let oracleOutput = try artifact("oracle-output", root: root)
+        let source = try artifact("model-source", root: root)
+        let inputs = [input, source]
+        let artifactFixture = try ToolQualificationCLIArtifactFixture()
+        let primaryExecution = try artifactFixture.writeExecution(root: root, caseID: "case-1",
+            executionID: "output", implementationID: scope.implementationID, version: scope.toolVersion,
+            executable: tool, inputs: inputs, source: source, modelIDs: ["process-model-a"],
+            observations: ["case-result": 0])
+        let oracleExecution = try artifactFixture.writeExecution(root: root, caseID: "case-1",
+            executionID: "oracle-output", implementationID: oracleID, version: "2.0.0",
+            executable: oracleTool, inputs: inputs, source: source, modelIDs: ["process-model-a"],
+            observations: ["case-result": 0])
+        let output = primaryExecution.original
+        let oracleOutput = oracleExecution.original
         let issuer = try ProducerIdentity(
             kind: .engine,
             identifier: "qualification-runner",
@@ -139,10 +192,11 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
-                outputArtifacts: [output],
+                inputArtifacts: inputs,
+                outputArtifacts: [output] + primaryExecution.receipts,
                 cases: [ToolQualificationCaseOutcome(
                     caseID: "case-1",
+                    originalExecutionArtifact: output,
                     coverageTags: ["fixture"],
                     comparisons: [ToolQualificationMetricComparison(
                         metricID: "case-result",
@@ -163,18 +217,20 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 oracleToolID: oracleID,
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
-                primaryOutputArtifacts: [output],
-                oracleOutputArtifacts: [oracleOutput],
+                inputArtifacts: inputs,
+                primaryOutputArtifacts: [output] + primaryExecution.receipts,
+                oracleOutputArtifacts: [oracleOutput] + oracleExecution.receipts,
                 cases: [ToolOracleCaseComparison(
                     caseID: "case-1",
                     primary: ToolQualificationCaseOutcome(
                         caseID: "case-1",
+                        originalExecutionArtifact: output,
                         coverageTags: ["fixture"],
                         comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case-1",
+                        originalExecutionArtifact: oracleOutput,
                         coverageTags: ["fixture"],
                         comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
                     ),
@@ -196,7 +252,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
+                inputArtifacts: inputs,
                 outputArtifacts: [output],
                 checkedAt: now
             ).canonicalData()
@@ -209,8 +265,8 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             corpusResultArtifacts: [corpus],
             oracleResultArtifacts: [oracle],
             healthResultArtifacts: [health],
-            inputArtifacts: [input],
-            outputArtifacts: [output, oracleOutput],
+            inputArtifacts: inputs,
+            outputArtifacts: [output, oracleOutput] + primaryExecution.receipts + oracleExecution.receipts,
             qualifiedModelIDs: ["process-model-a"],
             qualifiedAt: now.addingTimeInterval(-10),
             expiresAt: now.addingTimeInterval(100)

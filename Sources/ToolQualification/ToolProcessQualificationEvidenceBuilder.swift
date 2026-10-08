@@ -2,6 +2,37 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationEvidenceBuilding {
+    private struct VerifiedCase {
+        let outcome: ToolQualificationCaseOutcome
+        let execution: ToolQualificationCaseExecution
+        let receipts: [ToolQualificationModelExecutionReceipt]
+    }
+
+    private struct VerifiedOracleCase {
+        let comparison: ToolOracleCaseComparison
+        let primary: VerifiedCase
+        let oracle: VerifiedCase
+    }
+
+    private struct ModelMeaning: Hashable {
+        let modelID: String
+        let source: ArtifactReference
+        let selectedModelIdentifier: String
+        let consumedInstanceIDs: [String]
+        let inputs: [ArtifactReference]
+        let version: String?
+        let parameters: [String: Double]
+
+        init(_ receipt: ToolQualificationModelExecutionReceipt) {
+            modelID = receipt.modelID
+            source = receipt.sourceArtifact
+            selectedModelIdentifier = receipt.selectedModelIdentifier
+            consumedInstanceIDs = receipt.consumedInstanceIDs
+            inputs = receipt.inputArtifacts
+            version = receipt.modelVersion
+            parameters = receipt.resolvedParameters
+        }
+    }
     public init() {}
 
     public func build(
@@ -21,6 +52,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             )
         }
         guard request.scope.isCompleteForProduction,
+              request.toolID == request.scope.implementationID,
               !request.requirePDKScope || request.scope.isCompleteForPDK else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "production qualification requires tool version, binary, process, PDK, deck, and independent oracle scope"
@@ -39,16 +71,12 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         guard request.qualifiedAt <= date, date < request.expiresAt else {
             throw ToolProcessQualificationEvidenceBuildError.notValidAt
         }
-        guard request.qualifiedModelIDs.allSatisfy({
-            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) else {
+        guard request.qualifiedModelIDs.allSatisfy(ToolQualificationArtifactValidation.isToken) else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
-                "qualifiedModelIDs must not contain empty values"
+                "qualifiedModelIDs must contain valid model identity tokens"
             )
         }
-        guard request.requiredOperatingCornerIDs.allSatisfy({
-            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) else {
+        guard request.requiredOperatingCornerIDs.allSatisfy(ToolQualificationArtifactValidation.isToken) else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
                 "requiredOperatingCornerIDs must not contain empty values"
             )
@@ -102,7 +130,14 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             reading: artifacts,
             evaluatedAt: date
         )
-        let evidenceIDs = (corpusEvidence + oracleEvidence + healthEvidence)
+        let qualifiedModelIDs = try caseBoundModels(
+            corpus: corpusEvidence.cases, oracle: oracleEvidence.cases
+        )
+        let missingModels = Set(request.qualifiedModelIDs).subtracting(qualifiedModelIDs)
+        guard missingModels.isEmpty else {
+            throw ToolProcessQualificationEvidenceBuildError.unexecutedModels(missingModels.sorted())
+        }
+        let evidenceIDs = (corpusEvidence.evidence + oracleEvidence.evidence + healthEvidence)
             .map(\.evidenceID)
         guard Set(evidenceIDs).count == evidenceIDs.count else {
             throw ToolProcessQualificationEvidenceBuildError.invalidInput(
@@ -116,12 +151,12 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             scope: request.scope,
             identityArtifacts: request.identityArtifacts,
             status: .qualified,
-            corpusEvidence: corpusEvidence,
-            oracleEvidence: oracleEvidence,
+            corpusEvidence: corpusEvidence.evidence,
+            oracleEvidence: oracleEvidence.evidence,
             healthEvidence: healthEvidence,
             inputArtifacts: inputArtifacts,
             outputArtifacts: outputArtifacts,
-            qualifiedModelIDs: request.qualifiedModelIDs,
+            qualifiedModelIDs: qualifiedModelIDs.sorted(),
             qualifiedOperatingCornerIDs: request.requiredOperatingCornerIDs,
             blockers: [],
             qualifiedAt: request.qualifiedAt,
@@ -135,15 +170,22 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         outputArtifacts: [ArtifactReference],
         reading artifacts: any ToolQualificationArtifactReading,
         evaluatedAt: Date
-    ) async throws -> [ToolEvidence] {
+    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedCase]) {
         guard !request.corpusResultArtifacts.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.missingEvidence(.corpus)
         }
         var evidenceItems: [ToolEvidence] = []
+        var cases: [String: VerifiedCase] = [:]
         for artifact in request.corpusResultArtifacts {
-            let result = try ToolCorpusQualificationResult.decodeCanonical(
-                from: await artifacts.verifiedData(for: artifact)
-            )
+            let data = try await artifacts.verifiedData(for: artifact)
+            let result: ToolCorpusQualificationResult
+            do {
+                result = try ToolCorpusQualificationResult.decodeCanonical(from: data)
+            } catch {
+                throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+                    "invalid retained corpus result: \(error.localizedDescription)"
+                )
+            }
             guard result.isPassing,
                   result.coverage.covers(
                     operatingCornerIDs: request.requiredOperatingCornerIDs
@@ -164,8 +206,25 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 artifact: artifact,
                 checkedAt: result.checkedAt
             ))
+            for outcome in result.cases {
+                if let existing = cases[outcome.caseID], existing.outcome != outcome {
+                    throw ToolProcessQualificationEvidenceBuildError.conflictingCase(outcome.caseID)
+                }
+                guard result.outputArtifacts.contains(outcome.originalExecutionArtifact) else {
+                    throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                        caseID: outcome.caseID, reason: "corpus does not retain the original case output"
+                    )
+                }
+                let verified = try await verifiedExecution(
+                    outcome, executable: request.identityArtifacts.toolExecutable,
+                    implementationID: request.scope.implementationID, version: request.scope.toolVersion,
+                    request: request, reading: artifacts
+                )
+                try requireInventory(verified, inputs: result.inputArtifacts, outputs: result.outputArtifacts)
+                cases[outcome.caseID] = verified
+            }
         }
-        return evidenceItems
+        return (evidenceItems, cases)
     }
 
     private func oracleEvidence(
@@ -174,16 +233,23 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         outputArtifacts: [ArtifactReference],
         reading artifacts: any ToolQualificationArtifactReading,
         evaluatedAt: Date
-    ) async throws -> [ToolEvidence] {
+    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedOracleCase]) {
         guard !request.oracleResultArtifacts.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.missingEvidence(.oracle)
         }
         var evidenceItems: [ToolEvidence] = []
+        var cases: [String: VerifiedOracleCase] = [:]
         for artifact in request.oracleResultArtifacts {
-            let result = try ToolOracleQualificationResult.decodeCanonical(
-                from: await artifacts.verifiedData(for: artifact)
-            )
-            guard result.isPassing,
+            let data = try await artifacts.verifiedData(for: artifact)
+            let result: ToolOracleQualificationResult
+            do {
+                result = try ToolOracleQualificationResult.decodeCanonical(from: data)
+            } catch {
+                throw ToolProcessQualificationEvidenceBuildError.invalidInput(
+                    "invalid retained oracle result: \(error.localizedDescription)"
+                )
+            }
+            guard result.isStructurallyValid,
                   result.coverage.covers(
                     operatingCornerIDs: request.requiredOperatingCornerIDs
                   ),
@@ -206,8 +272,153 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 artifact: artifact,
                 checkedAt: result.checkedAt
             ))
+            for comparison in result.cases {
+                if let existing = cases[comparison.caseID], existing.comparison != comparison {
+                    throw ToolProcessQualificationEvidenceBuildError.conflictingCase(comparison.caseID)
+                }
+                guard result.primaryOutputArtifacts.contains(comparison.primary.originalExecutionArtifact),
+                      result.oracleOutputArtifacts.contains(comparison.oracle.originalExecutionArtifact) else {
+                    throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                        caseID: comparison.caseID, reason: "oracle does not retain both original case outputs"
+                    )
+                }
+                guard let oracleScope = request.scope.oracle else {
+                    throw ToolProcessQualificationEvidenceBuildError.invalidInput("independent oracle scope is absent")
+                }
+                let primary = try await verifiedExecution(
+                    comparison.primary, executable: request.identityArtifacts.toolExecutable,
+                    implementationID: request.scope.implementationID, version: request.scope.toolVersion,
+                    request: request, reading: artifacts
+                )
+                let oracle = try await verifiedExecution(
+                    comparison.oracle, executable: request.identityArtifacts.oracleExecutable,
+                    implementationID: oracleScope.implementationID, version: oracleScope.version,
+                    request: request, reading: artifacts
+                )
+                try requireInventory(primary, inputs: result.inputArtifacts, outputs: result.primaryOutputArtifacts)
+                try requireInventory(oracle, inputs: result.inputArtifacts, outputs: result.oracleOutputArtifacts)
+                cases[comparison.caseID] = VerifiedOracleCase(comparison: comparison, primary: primary, oracle: oracle)
+            }
         }
-        return evidenceItems
+        return (evidenceItems, cases)
+    }
+
+    private func caseBoundModels(
+        corpus: [String: VerifiedCase],
+        oracle: [String: VerifiedOracleCase]
+    ) throws -> Set<String> {
+        let missingCases = Set(corpus.keys).symmetricDifference(Set(oracle.keys))
+        if let caseID = missingCases.sorted().first {
+            throw ToolProcessQualificationEvidenceBuildError.missingCase(caseID)
+        }
+        var coveredModels = Set<String>()
+        for caseID in corpus.keys.sorted() {
+            guard let primaryExecution = corpus[caseID], let oracleCase = oracle[caseID],
+                  primaryExecution.outcome == oracleCase.comparison.primary else {
+                throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                    caseID: caseID, reason: "oracle primary does not exactly match the corpus primary"
+                )
+            }
+            guard oracleCase.comparison.primaryPassed,
+                  oracleCase.comparison.oraclePassed,
+                  oracleCase.comparison.agreed,
+                  oracleCase.comparison.failureCodes.isEmpty else {
+                throw ToolProcessQualificationEvidenceBuildError.evidenceNotQualified(caseID)
+            }
+            let oracleExecution = oracleCase.oracle
+            guard primaryExecution.outcome.originalExecutionArtifact != oracleExecution.outcome.originalExecutionArtifact,
+                  primaryExecution.execution.executionID != oracleExecution.execution.executionID,
+                  primaryExecution.execution.inputArtifacts == oracleExecution.execution.inputArtifacts,
+                  Set(primaryExecution.execution.modelReceiptArtifacts)
+                    .isDisjoint(with: Set(oracleExecution.execution.modelReceiptArtifacts)) else {
+                throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                    caseID: caseID, reason: "independent executions require distinct outputs and receipts with identical case inputs"
+                )
+            }
+            guard Set(primaryExecution.receipts.map(ModelMeaning.init))
+                == Set(oracleExecution.receipts.map(ModelMeaning.init)) else {
+                throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                    caseID: caseID, reason: "primary and oracle selected model source, version, instances or resolved conditions differ"
+                )
+            }
+            coveredModels.formUnion(primaryExecution.receipts.map(\.modelID))
+        }
+        return coveredModels
+    }
+
+    private func requireInventory(
+        _ verified: VerifiedCase,
+        inputs: [ArtifactReference],
+        outputs: [ArtifactReference]
+    ) throws {
+        guard Set(verified.execution.inputArtifacts).isSubset(of: Set(inputs)),
+              Set(verified.execution.modelReceiptArtifacts).isSubset(of: Set(outputs)) else {
+            throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                caseID: verified.outcome.caseID,
+                reason: "case result inventory does not retain its original inputs and model receipts"
+            )
+        }
+    }
+
+    private func verifiedExecution(
+        _ outcome: ToolQualificationCaseOutcome,
+        executable: ArtifactReference,
+        implementationID: String,
+        version: String,
+        request: ToolProcessQualificationEvidenceBuildRequest,
+        reading artifacts: any ToolQualificationArtifactReading
+    ) async throws -> VerifiedCase {
+        let originalData = try await artifacts.verifiedData(for: outcome.originalExecutionArtifact)
+        let execution: ToolQualificationCaseExecution
+        do {
+            execution = try ToolQualificationCaseExecution.decodeCanonical(from: originalData)
+        } catch {
+            throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                caseID: outcome.caseID, reason: "invalid original execution: \(error.localizedDescription)"
+            )
+        }
+        guard execution.caseID == outcome.caseID,
+              execution.executableArtifact == executable,
+              ToolQualificationArtifactValidation.isExecutionProducerKind(execution.producer.kind),
+              execution.producer.identifier == implementationID,
+              execution.producer.version == version,
+              execution.observedMetrics == Dictionary(uniqueKeysWithValues: outcome.comparisons.map { ($0.metricID, $0.observed) }),
+              Set(execution.inputArtifacts).isSubset(of: Set(request.inputArtifacts)),
+              Set(execution.modelReceiptArtifacts).isSubset(of: Set(request.outputArtifacts)),
+              !execution.modelReceiptArtifacts.contains(outcome.originalExecutionArtifact) else {
+            throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                caseID: outcome.caseID, reason: "original observations, executable, producer or retained inventory does not match"
+            )
+        }
+        _ = try await artifacts.verifiedData(for: execution.executableArtifact)
+        for input in execution.inputArtifacts { _ = try await artifacts.verifiedData(for: input) }
+        var receipts: [ToolQualificationModelExecutionReceipt] = []
+        var consumedByModel: [String: Set<String>] = [:]
+        for reference in execution.modelReceiptArtifacts {
+            let receiptData = try await artifacts.verifiedData(for: reference)
+            let receipt: ToolQualificationModelExecutionReceipt
+            do {
+                receipt = try ToolQualificationModelExecutionReceipt.decodeCanonical(from: receiptData)
+            } catch {
+                throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                    caseID: outcome.caseID, reason: "invalid consumed-model receipt: \(error.localizedDescription)"
+                )
+            }
+            guard receipt.caseID == execution.caseID,
+                  receipt.executionID == execution.executionID,
+                  receipt.producer == execution.producer,
+                  receipt.inputArtifacts == execution.inputArtifacts,
+                  Set(receipt.consumedInstanceIDs).isDisjoint(with: consumedByModel[receipt.modelID] ?? []) else {
+                throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+                    caseID: outcome.caseID, reason: "receipt has a different execution/input binding or duplicates a consumed instance"
+                )
+            }
+            _ = try await artifacts.verifiedData(for: receipt.sourceArtifact)
+            for input in receipt.inputArtifacts { _ = try await artifacts.verifiedData(for: input) }
+            consumedByModel[receipt.modelID, default: []].formUnion(receipt.consumedInstanceIDs)
+            receipts.append(receipt)
+        }
+        return VerifiedCase(outcome: outcome, execution: execution, receipts: receipts)
     }
 
     private func healthEvidence(

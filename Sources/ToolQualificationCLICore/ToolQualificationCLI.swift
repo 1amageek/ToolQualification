@@ -131,7 +131,8 @@ public enum ToolQualificationCLI {
       validate-process-evidence  Validate a persisted process qualification record
                          at a specific evaluation time and optional PDK scope.
       build-process-evidence  Build a qualified process record only when all
-                         independent corpus, oracle, health and approval evidence is present.
+                         scoped corpus, independent oracle and health evidence matches
+                         retained original executions and consumed-model receipts.
       issue-record       Issue a runtime qualification record after independently
                          verifying its retained evidence and health result.
 
@@ -252,13 +253,18 @@ public enum ToolQualificationCLI {
 
     OPTIONS:
       --input <build-request.json>  Build request containing scoped corpus,
-                                    oracle, health and production-approval evidence (required)
+                                    oracle, health, original executions and consumed-model receipts (required)
       --workspace-root <path> Workspace root used to verify every retained artifact (required)
       --availability-inventory <path.json>
                               Explicit root ID, access budget, and artifact availability (required)
       --output <evidence.json>      Qualified process record output path (required)
       --at <unix-seconds>           Require the validity window to contain this time; defaults to now
       --pretty                      Pretty-print the stdout JSON envelope and output record
+
+    COVERAGE:
+      qualifiedModelIDs in the build request is desired coverage. Output coverage
+      is derived from matched primary/oracle original executions. Every source,
+      original output and model receipt must have retained artifact availability.
 
     EXIT CODES:
       0  qualified process record was written

@@ -21,6 +21,47 @@ struct ToolQualificationCLIArtifactFixture {
         )
     }
 
+    func writeExecution(
+        root: URL,
+        caseID: String,
+        executionID: String,
+        implementationID: String,
+        version: String,
+        executable: ArtifactReference,
+        inputs: [ArtifactReference],
+        source: ArtifactReference,
+        modelIDs: [String] = [],
+        observations: [String: Double]
+    ) throws -> (original: ArtifactReference, receipts: [ArtifactReference]) {
+        let producer = try ProducerIdentity(kind: .engine, identifier: implementationID, version: version)
+        let receipts = try modelIDs.enumerated().map { index, modelID in
+            try writeArtifact(root: root, name: "\(executionID)-receipt-\(index)",
+                data: ToolQualificationModelExecutionReceipt(
+                    caseID: caseID, executionID: executionID, producer: producer,
+                    modelID: modelID, sourceArtifact: source, selectedModelIdentifier: modelID,
+                    consumedInstanceIDs: ["instance-\(index)"], inputArtifacts: inputs,
+                    resolvedParameters: ["temperature": 300]
+                ).canonicalData())
+        }
+        let original = try writeArtifact(root: root, name: executionID,
+            data: ToolQualificationCaseExecution(
+                caseID: caseID, executionID: executionID, producer: producer,
+                executableArtifact: executable, inputArtifacts: inputs,
+                modelReceiptArtifacts: receipts, observedMetrics: observations
+            ).canonicalData())
+        return (original, receipts)
+    }
+
+    private func writeArtifact(root: URL, name: String, data: Data) throws -> ArtifactReference {
+        let path = "qualification/\(name).json"
+        let url = root.appending(path: path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+        return try LocalArtifactReferencer().reference(
+            ArtifactLocator(location: try ArtifactLocation(workspaceRelativePath: path),
+                role: .output, kind: .evidence, format: .json), relativeTo: root)
+    }
+
     func writeInventory(
         root: URL,
         artifacts: [(reference: ArtifactReference, relativePath: String)],

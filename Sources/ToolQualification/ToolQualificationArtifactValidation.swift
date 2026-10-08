@@ -1,6 +1,16 @@
 import CircuiteFoundation
+import Foundation
 
 enum ToolQualificationArtifactValidation {
+    static func isExecutionProducerKind(_ kind: ProducerKind) -> Bool {
+        kind == .engine || kind == .tool
+    }
+
+    static func isToken(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines) == value
+            && !value.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+    }
     static func isVerifiable(_ artifact: ArtifactReference) -> Bool {
         artifact.id.digest == artifact.digest
             && artifact.id.byteCount == artifact.byteCount

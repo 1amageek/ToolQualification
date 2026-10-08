@@ -1,6 +1,13 @@
 # ToolQualification Design Contract
 
-## Responsibility
+## Purpose and Scope
+
+This is the package design authority for the existing qualification library and
+its headless CLI. Parent: [LSI](../DESIGN.md). Domain execution and physical-model
+interpretation remain outside this package; no new policy service or execution
+wrapper is introduced by the case-bound qualification contract below.
+
+## Responsibilities and Boundaries
 
 `ToolQualification` evaluates whether a tool is eligible for a requested flow
 operation. It owns tool descriptors, capabilities, qualification levels,
@@ -12,6 +19,8 @@ It never launches a tool. Domain engines produce domain assessments,
 observations, artifacts, and provenance. This package validates those inputs,
 builds qualification evidence, issues qualification records, and applies
 fail-closed trust gates.
+
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -78,7 +87,16 @@ evidence that was not supplied by the caller. CLI commands expose
 domain-specific, typed records and diagnostics; they are not a persistence
 contract for another package.
 
-## Production evidence invariant
+## Related Designs
+
+| Design | Relationship | Contract Used | Summary | Cautions |
+|---|---|---|---|---|
+| [LSI](../DESIGN.md) | parent | Process evidence and domain ownership | System composition | Library availability is not process qualification |
+| [CoreSpice](../CoreSpice/DESIGN.md) | coordinates with | Actual selected model and simulation evidence | Domain-generated observations | Model equations and extraction criteria remain domain-owned |
+| [Xcircuite](../Xcircuite/Sources/Xcircuite/DESIGN.md) | used by | Evidence building, validation and retained references | Flow and artifact composition | Preserve all referenced inputs and original outputs |
+| [ReleaseEngine](../ReleaseEngine/DESIGN.md) | used by | Validated process qualification scope | Separate release authorization | Human approval cannot replace missing execution evidence |
+
+## Contracts and Invariants
 
 `productionEligible` is derived from a complete process record, never from the
 descriptor level. The record retains the exact tool and oracle binaries, PDK and
@@ -90,6 +108,171 @@ independent-oracle results. Every reference
 carries SHA-256 and byte count. ToolQualification, domain packages, and
 Xcircuite re-verify the referenced bytes before accepting it. Human approval is
 owned by DesignFlowKernel and ReleaseEngine.
+
+### Case-bound model promotion: required contract
+
+Requested model coverage and executed model coverage have separate authorities.
+The builder joins original executed cases before deriving its model claims;
+the validator reconstructs that derivation without supplying the record's model
+list as build-request coverage. Domain receipt emission and metric authority
+remain separate completion obligations.
+
+The build request owns the desired model coverage, not the truth of that coverage.
+Domain case declarations own the exact input, model source and operating profile.
+The actual domain executor owns receipts for the models it selected and consumed,
+and the original case output containing its observations. A receipt must be
+generated from actual preparation/binding or extraction, rather than by copying
+the request, a case declaration or a coverage tag. Its exact source and execution
+artifact references are retained and integrity-verified.
+
+The independent oracle owns its separate execution and output for the same case
+input and model meaning. Different executables or output paths do not substitute
+for checking the case binding. The builder joins the corpus primary outcome and
+the oracle comparison's primary outcome exactly, including input identity, model
+receipts, metric identity and observed values. Oracle agreement is evaluated only
+after that join. Conflicting duplicate cases, missing required cases, altered
+receipts, unmatched original outputs and unsupported requested model claims fail
+explicitly before producing qualified evidence.
+
+Qualified model IDs are derived from passing, matched primary/oracle case
+bindings. Every requested model must be present in that derived coverage. A
+loaded but unused model declaration is not a receipt. Coverage tags describe
+cases and do not encode model identity. The validator recomputes the same joins
+and derived claims from retained original artifacts, then compares the rebuilt
+record with the supplied evidence. It does not treat the supplied model list as
+independent proof. Operating-corner coverage keeps the existing aggregate
+corpus/oracle contract; model binding does not introduce a per-case corner rule.
+
+```text
+Domain case declaration and exact inputs
+    -> actual primary execution -> selected-model receipts and original output
+    -> independent oracle execution -> separate receipts and original output
+    -> exact corpus/oracle primary join -> passing comparisons
+    -> derived model coverage -> qualified evidence -> independent rebuild
+```
+
+### Original execution and model receipt schema
+
+`ToolQualificationCaseOutcome.originalExecutionArtifact` is required. Canonical
+outcome, corpus, oracle, build-request and evidence schemas migrate together;
+legacy outcomes without this binding are rejected rather than synthesized.
+
+`ToolQualificationCaseExecution` is the retained original output envelope. It
+contains the case ID, execution ID, producer, exact executable artifact, exact
+input artifacts, model-receipt artifact references and observed metrics. Its
+observations must equal the corresponding outcome. Its executable and producer
+must match the relevant primary or oracle execution identity. Original outputs
+and receipts belong to the output inventory; source and case inputs belong to
+the input inventory. Every nested reference is integrity-verified.
+
+Original executions and consumed-model receipts admit `.engine` and `.tool`
+producer kinds through one shared rule. These identify executing domain API and
+CLI producers, respectively; other kinds do not establish execution. Receipt
+producer identity equals the original execution producer in full, while the
+original execution identifier, version and executable match its scoped primary
+or oracle identity. Qualification-result issuers remain separate assessments.
+
+`ToolQualificationModelExecutionReceipt` contains the case ID, execution ID,
+producer, model ID, exact source artifact, selected model identifier, consumed
+instance IDs, exact input artifacts, optional declared model version and resolved
+numeric parameters. The domain owns the meaning and completeness of resolved
+parameters, including effective geometry and temperature when applicable.
+Absent version information remains absent; the builder never infers a version.
+Numeric parameters must be finite and duplicate or conflicting identities fail.
+Only actually consumed instances establish model coverage.
+
+| Canonical value | Schema version |
+|---|---|
+| Case outcome / original execution / model receipt | 1 |
+| Corpus result | 3 |
+| Oracle result | 4 |
+| Process build request | 7 |
+| Process evidence | 6 |
+
+Receipt inputs equal their original execution's exact input set, which includes
+the model source. Every original input and receipt must also appear in the
+corresponding corpus/oracle inventory and the process inventory. This flattened
+retention guarantee lets direct consumers retain `inputArtifacts` and
+`outputArtifacts` without interpreting domain models. A model-free execution
+retains empty receipts and derives no model claims; an unconsumed declaration
+cannot supply desired coverage.
+
+The corpus primary and the oracle's embedded primary must identify the same
+original output and observations. Independent primary and oracle executions
+retain distinct execution identities and original outputs. Their common case
+inputs, model source, selected model meaning, version and resolved conditions
+must agree; their execution-specific receipt bytes need not be identical.
+The validator derives all covered model IDs from retained passing comparisons,
+then compares the rebuilt evidence with the supplied record. Supplied model IDs
+remain claims to verify, never a source of coverage truth.
+
+These envelopes establish execution binding, not physical accuracy. Domain
+emitters must produce receipts from actual preparation or extraction before
+composed flow/release completion can be claimed.
+
+### Metric criterion authority: required contract
+
+The domain owns metric meaning, units, extraction conditions and admissible
+operating domain. The application requirement owns the allowed error or circuit
+limit. A retained criterion identifies both authorities and its reference data;
+an output result cannot choose a more permissive tolerance for itself. The
+builder verifies the criterion's input identity and case/metric applicability
+before accepting a derived comparison. Shared validation must not reconstruct
+semiconductor meaning from metric names or coverage tags.
+
+| Assessment purpose | Required distinction |
+|---|---|
+| Implementation correlation | Same specified model and conditions across independent implementations; not measured process accuracy |
+| Numerical convergence | Residual, discretization or timestep behavior; not a circuit specification |
+| Physical-model validation | Disagreement against a suitable physical reference, with its uncertainty and operating domain |
+| Circuit requirement | Application voltage, current, delay or waveform requirement, independent of comparison tolerance |
+
+The criterion preserves absolute/relative comparison rules, near-zero handling,
+reference provenance, units and extraction definition. Physical-reference
+uncertainty preserves its components, correlations, aggregation method and
+distribution/coverage assumptions. Calibration and held-out validation inputs
+remain distinguishable. Neither a large uncertainty interval nor a solver
+residual supplies an application acceptance threshold. Unknown physical limits
+remain unavailable for physical qualification; they are not inferred from smoke
+fixtures, published benchmark percentages or implementation agreement.
+
+The source basis is [NIST IR8298 sections 4 and 5](https://nvlpubs.nist.gov/nistpubs/ir/2020/NIST.IR.8298.pdf),
+[NIST TN1297 sections 5 through 7](https://physics.nist.gov/cuu/pdf/tn1297.pdf)
+and [JCGM106](https://www.bipm.org/en/doi/10.59161/jcgm106-2012).
+These establish assessment and uncertainty methods, not semiconductor-specific
+acceptance limits. Physical equations and such limits remain domain/application
+contracts.
+
+## State, Ownership, and Lifecycle
+
+Qualification requests, outcomes and records are Sendable values. Artifact
+readers own bounded reads and close failures. Domain executors own execution
+resources; this package does not acquire simulator or extractor lifetimes.
+Record validation retains neither mutable domain state nor an implicit latest
+model or criterion reference.
+
+## Failure, Concurrency, and Constraints
+
+Missing or inconsistent case bindings, insufficient requested coverage, changed
+artifact bytes, unsupported schemas and unavailable criteria are explicit
+failures. No path substitutes empty observations or a successful default model.
+Model and criterion migrations update canonical schemas and direct consumers;
+legacy artifacts without the required binding are not silently accepted.
+
+## Verification and Change Impact
+
+| Proof owner | Behavioral obligation |
+|---|---|
+| Qualification builder tests | Existing request-only model fixture becomes a refusal; executed requested models derive exact claims |
+| Corpus/oracle tests | Reject a passing oracle primary with different corpus observations, inputs or model receipts |
+| Evidence validator tests | Reject forged extra model IDs and altered/missing original case artifacts on independent reconstruction |
+| Canonical schema and CLI tests | Preserve the complete binding and reject obsolete or incomplete artifacts |
+| Domain executor tests | Prove receipts arise from the actual selected models, including version, geometry and failed admission |
+| Xcircuite and ReleaseEngine | Retain all required references and refuse incomplete qualification at admission and release |
+
+The case-binding implementation and metric-criterion implementation are separate
+responsibilities. Their lower proofs precede composed flow/release verification;
+passing either responsibility alone does not establish physical qualification.
 
 ## Declared execution identity
 
