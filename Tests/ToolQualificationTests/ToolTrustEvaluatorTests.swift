@@ -630,7 +630,8 @@ private struct QualificationFixture {
         await reader.insert(Data([2]), for: executableArtifact)
         let originalData = try ToolQualificationCaseExecution(caseID: "case", executionID: "native-drc-case",
             producer: ProducerIdentity(kind: .engine, identifier: scope.implementationID, version: scope.toolVersion),
-            executableArtifact: executableArtifact, inputArtifacts: [inputArtifact], modelReceiptArtifacts: [],
+            executableArtifact: executableArtifact, inputArtifacts: [inputArtifact],
+            phaseIDs: ["analysis"], metricPhaseIDs: ["violation-count": ["analysis"]], modelReceiptArtifacts: [],
             observedMetrics: ["violation-count": passing ? 0 : 1]).canonicalData()
         let originalArtifact = try Self.artifact(data: originalData)
         await reader.insert(originalData, for: originalArtifact)

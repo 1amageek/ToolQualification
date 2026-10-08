@@ -15,23 +15,30 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
     }
 
     private struct ModelMeaning: Hashable {
+        let phaseID: String
         let modelID: String
         let source: ArtifactReference
         let selectedModelIdentifier: String
-        let consumedInstanceIDs: [String]
+        let consumedInstances: [String: [String: Double]]
         let inputs: [ArtifactReference]
         let version: String?
         let parameters: [String: Double]
 
         init(_ receipt: ToolQualificationModelExecutionReceipt) {
+            phaseID = receipt.phaseID
             modelID = receipt.modelID
             source = receipt.sourceArtifact
             selectedModelIdentifier = receipt.selectedModelIdentifier
-            consumedInstanceIDs = receipt.consumedInstanceIDs
+            consumedInstances = receipt.consumedInstances
             inputs = receipt.inputArtifacts
             version = receipt.modelVersion
             parameters = receipt.resolvedParameters
         }
+    }
+
+    private struct ConsumptionScope: Hashable {
+        let phaseID: String
+        let modelID: String
     }
     public init() {}
 
@@ -329,19 +336,24 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
             guard primaryExecution.outcome.originalExecutionArtifact != oracleExecution.outcome.originalExecutionArtifact,
                   primaryExecution.execution.executionID != oracleExecution.execution.executionID,
                   primaryExecution.execution.inputArtifacts == oracleExecution.execution.inputArtifacts,
+                  primaryExecution.execution.phaseIDs == oracleExecution.execution.phaseIDs,
+                  primaryExecution.execution.metricPhaseIDs == oracleExecution.execution.metricPhaseIDs,
                   Set(primaryExecution.execution.modelReceiptArtifacts)
                     .isDisjoint(with: Set(oracleExecution.execution.modelReceiptArtifacts)) else {
                 throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-                    caseID: caseID, reason: "independent executions require distinct outputs and receipts with identical case inputs"
+                    caseID: caseID, reason: "independent executions require distinct outputs and receipts with identical case inputs and phase bindings"
                 )
             }
             guard Set(primaryExecution.receipts.map(ModelMeaning.init))
                 == Set(oracleExecution.receipts.map(ModelMeaning.init)) else {
                 throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-                    caseID: caseID, reason: "primary and oracle selected model source, version, instances or resolved conditions differ"
+                    caseID: caseID, reason: "primary and oracle selected model source, version, phases, instances or resolved conditions differ"
                 )
             }
-            coveredModels.formUnion(primaryExecution.receipts.map(\.modelID))
+            let observedPhases = Set(primaryExecution.execution.metricPhaseIDs.values.joined())
+            for receipt in primaryExecution.receipts where observedPhases.contains(receipt.phaseID) {
+                coveredModels.insert(receipt.modelID)
+            }
         }
         return coveredModels
     }
@@ -393,7 +405,7 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         _ = try await artifacts.verifiedData(for: execution.executableArtifact)
         for input in execution.inputArtifacts { _ = try await artifacts.verifiedData(for: input) }
         var receipts: [ToolQualificationModelExecutionReceipt] = []
-        var consumedByModel: [String: Set<String>] = [:]
+        var consumedByScope: [ConsumptionScope: Set<String>] = [:]
         for reference in execution.modelReceiptArtifacts {
             let receiptData = try await artifacts.verifiedData(for: reference)
             let receipt: ToolQualificationModelExecutionReceipt
@@ -404,18 +416,20 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                     caseID: outcome.caseID, reason: "invalid consumed-model receipt: \(error.localizedDescription)"
                 )
             }
+            let consumptionScope = ConsumptionScope(phaseID: receipt.phaseID, modelID: receipt.modelID)
             guard receipt.caseID == execution.caseID,
                   receipt.executionID == execution.executionID,
                   receipt.producer == execution.producer,
                   receipt.inputArtifacts == execution.inputArtifacts,
-                  Set(receipt.consumedInstanceIDs).isDisjoint(with: consumedByModel[receipt.modelID] ?? []) else {
+                  execution.phaseIDs.contains(receipt.phaseID),
+                  Set(receipt.consumedInstances.keys).isDisjoint(with: consumedByScope[consumptionScope] ?? []) else {
                 throw ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-                    caseID: outcome.caseID, reason: "receipt has a different execution/input binding or duplicates a consumed instance"
+                    caseID: outcome.caseID, reason: "receipt has a different execution/input/phase binding or duplicates a consumed instance within one phase"
                 )
             }
             _ = try await artifacts.verifiedData(for: receipt.sourceArtifact)
             for input in receipt.inputArtifacts { _ = try await artifacts.verifiedData(for: input) }
-            consumedByModel[receipt.modelID, default: []].formUnion(receipt.consumedInstanceIDs)
+            consumedByScope[consumptionScope, default: []].formUnion(receipt.consumedInstances.keys)
             receipts.append(receipt)
         }
         return VerifiedCase(outcome: outcome, execution: execution, receipts: receipts)

@@ -37,16 +37,17 @@ struct ToolQualificationCLIArtifactFixture {
         let receipts = try modelIDs.enumerated().map { index, modelID in
             try writeArtifact(root: root, name: "\(executionID)-receipt-\(index)",
                 data: ToolQualificationModelExecutionReceipt(
-                    caseID: caseID, executionID: executionID, producer: producer,
+                    caseID: caseID, executionID: executionID, producer: producer, phaseID: "analysis",
                     modelID: modelID, sourceArtifact: source, selectedModelIdentifier: modelID,
-                    consumedInstanceIDs: ["instance-\(index)"], inputArtifacts: inputs,
-                    resolvedParameters: ["temperature": 300]
+                    consumedInstances: ["instance-\(index)": ["temperature": 300]], inputArtifacts: inputs,
+                    resolvedParameters: [:]
                 ).canonicalData())
         }
         let original = try writeArtifact(root: root, name: executionID,
             data: ToolQualificationCaseExecution(
                 caseID: caseID, executionID: executionID, producer: producer,
                 executableArtifact: executable, inputArtifacts: inputs,
+                phaseIDs: ["analysis"], metricPhaseIDs: observations.mapValues { _ in ["analysis"] },
                 modelReceiptArtifacts: receipts, observedMetrics: observations
             ).canonicalData())
         return (original, receipts)

@@ -159,7 +159,8 @@ legacy outcomes without this binding are rejected rather than synthesized.
 
 `ToolQualificationCaseExecution` is the retained original output envelope. It
 contains the case ID, execution ID, producer, exact executable artifact, exact
-input artifacts, model-receipt artifact references and observed metrics. Its
+input artifacts, completed phase IDs, metric-to-phase bindings, model-receipt
+artifact references and observed metrics. Its
 observations must equal the corresponding outcome. Its executable and producer
 must match the relevant primary or oracle execution identity. Original outputs
 and receipts belong to the output inventory; source and case inputs belong to
@@ -173,21 +174,23 @@ original execution identifier, version and executable match its scoped primary
 or oracle identity. Qualification-result issuers remain separate assessments.
 
 `ToolQualificationModelExecutionReceipt` contains the case ID, execution ID,
-producer, model ID, exact source artifact, selected model identifier, consumed
-instance IDs, exact input artifacts, optional declared model version and resolved
-numeric parameters. The domain owns the meaning and completeness of resolved
-parameters, including effective geometry and temperature when applicable.
+producer, phase ID, model ID, exact source artifact, selected model identifier,
+consumed instances, exact input artifacts, optional declared model version and
+resolved model-only numeric parameters. The consumed-instance dictionary maps
+each actual instance ID to its effective numeric parameters. The domain owns
+the meaning and completeness of both parameter sets, including effective
+geometry and temperature when applicable.
 Absent version information remains absent; the builder never infers a version.
 Numeric parameters must be finite and duplicate or conflicting identities fail.
 Only actually consumed instances establish model coverage.
 
 | Canonical value | Schema version |
 |---|---|
-| Case outcome / original execution / model receipt | 1 |
-| Corpus result | 3 |
-| Oracle result | 4 |
-| Process build request | 7 |
-| Process evidence | 6 |
+| Case outcome / original execution / model receipt | 2 |
+| Corpus result | 4 |
+| Oracle result | 5 |
+| Process build request | 8 |
+| Process evidence | 7 |
 
 Receipt inputs equal their original execution's exact input set, which includes
 the model source. Every original input and receipt must also appear in the
@@ -209,6 +212,45 @@ remain claims to verify, never a source of coverage truth.
 These envelopes establish execution binding, not physical accuracy. Domain
 emitters must produce receipts from actual preparation or extraction before
 composed flow/release completion can be claimed.
+
+### Phase-bound execution composition
+
+DC points and Monte Carlo seeds can bind the same actual instance with different
+effective parameters. A baseline binding snapshot cannot represent those runs.
+The original case envelope must retain unique, completed domain phase IDs and
+an explicit `metricPhaseIDs` binding for every observed metric. A DC aggregate
+observation refers to all contributing points; a seed-local observation refers
+only to that seed. Domain executors own phase conditions and identity, and retain
+effective invocation, operating conditions and seeds as exact case inputs.
+
+Each model receipt belongs to one phase and retains resolved model parameters
+separately from a `consumedInstances` dictionary keyed by actual instance ID,
+whose values are that instance's finite effective numeric parameters. The
+dictionary is the sole consumed-instance inventory; phase IDs never alter
+instance IDs. Duplicate consumption is rejected within the same phase/model/
+instance tuple, while distinct phases may consume the same instance.
+
+The builder verifies phase membership and complete metric-to-phase bindings,
+and independently joins primary/oracle phase bindings and per-instance effective
+parameters alongside existing model/source/input meaning. All retained phases
+and receipts remain integrity-verified. Qualified coverage is derived only from
+receipts in phases contributing to passing matched observations; an executed
+but unobserved phase cannot promote a model. Unknown phases, duplicate
+consumption, mismatched phase conditions or parameters, and missing observation
+bindings fail before evidence publication. Canonical schemas migrate without a
+legacy fallback. The former v1 envelopes describe only a case-wide binding and
+cannot represent per-phase consumption; the mandatory schemas above require the
+phase contract. `phaseIDs` is a nonempty unique canonical phase inventory.
+`metricPhaseIDs` has exactly the observed metric keys; each value is a nonempty
+unique subset of `phaseIDs`. Primary and oracle inventories and bindings agree.
+Receipts outside the union of observed metric phases remain retained and
+verified, but do not establish model coverage. Model-free phases are valid.
+
+Behavioral evidence must accept the same instance with different parameters in
+distinct phases, refuse duplicate consumption within one phase, refuse missing
+or unknown phase and differing oracle instance parameters, and prove that an
+unobserved phase cannot enlarge derived coverage. This migration changes
+execution binding, not physical acceptance criteria.
 
 ### Metric criterion authority: required contract
 

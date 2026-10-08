@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolQualificationCaseOutcome: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
     public let schemaVersion: Int
     public let caseID: String
     public let originalExecutionArtifact: ArtifactReference

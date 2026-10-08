@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidenceBuildRequest: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 7
+    public static let currentSchemaVersion = 8
 
     public var schemaVersion: Int
     public var qualificationID: String

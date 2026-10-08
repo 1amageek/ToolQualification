@@ -3,19 +3,23 @@ import CircuiteFoundation
 
 /// Original observations emitted by a domain executor after completing one case.
 public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
     public let schemaVersion: Int
     public let caseID: String
     public let executionID: String
     public let producer: ProducerIdentity
     public let executableArtifact: ArtifactReference
     public let inputArtifacts: [ArtifactReference]
+    /// Completed domain phases, with semantic identity owned by the executor.
+    public let phaseIDs: [String]
+    /// Actual contributing phases for every observed metric, including aggregates.
+    public let metricPhaseIDs: [String: [String]]
     public let modelReceiptArtifacts: [ArtifactReference]
     public let observedMetrics: [String: Double]
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, caseID, executionID, producer, executableArtifact
-        case inputArtifacts, modelReceiptArtifacts, observedMetrics
+        case inputArtifacts, phaseIDs, metricPhaseIDs, modelReceiptArtifacts, observedMetrics
     }
 
     public init(
@@ -24,6 +28,8 @@ public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
         producer: ProducerIdentity,
         executableArtifact: ArtifactReference,
         inputArtifacts: [ArtifactReference],
+        phaseIDs: [String],
+        metricPhaseIDs: [String: [String]],
         modelReceiptArtifacts: [ArtifactReference],
         observedMetrics: [String: Double],
         schemaVersion: Int = Self.currentSchemaVersion
@@ -34,6 +40,8 @@ public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
         self.producer = producer
         self.executableArtifact = executableArtifact
         self.inputArtifacts = inputArtifacts.sorted { $0.id.description < $1.id.description }
+        self.phaseIDs = phaseIDs.sorted()
+        self.metricPhaseIDs = metricPhaseIDs.mapValues { $0.sorted() }
         self.modelReceiptArtifacts = modelReceiptArtifacts.sorted { $0.id.description < $1.id.description }
         self.observedMetrics = observedMetrics
     }
@@ -50,6 +58,8 @@ public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
             producer: try container.decode(ProducerIdentity.self, forKey: .producer),
             executableArtifact: try container.decode(ArtifactReference.self, forKey: .executableArtifact),
             inputArtifacts: try container.decode([ArtifactReference].self, forKey: .inputArtifacts),
+            phaseIDs: try container.decode([String].self, forKey: .phaseIDs),
+            metricPhaseIDs: try container.decode([String: [String]].self, forKey: .metricPhaseIDs),
             modelReceiptArtifacts: try container.decode([ArtifactReference].self, forKey: .modelReceiptArtifacts),
             observedMetrics: try container.decode([String: Double].self, forKey: .observedMetrics),
             schemaVersion: version)
@@ -64,6 +74,14 @@ public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
             && !inputArtifacts.isEmpty
             && inputArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
             && ToolQualificationArtifactValidation.hasDistinctIdentities(inputArtifacts)
+            && !phaseIDs.isEmpty
+            && phaseIDs.allSatisfy(ToolQualificationArtifactValidation.isToken)
+            && Set(phaseIDs).count == phaseIDs.count
+            && Set(metricPhaseIDs.keys) == Set(observedMetrics.keys)
+            && metricPhaseIDs.values.allSatisfy { phases in
+                !phases.isEmpty && Set(phases).count == phases.count
+                    && Set(phases).isSubset(of: Set(phaseIDs))
+            }
             && modelReceiptArtifacts.allSatisfy(ToolQualificationArtifactValidation.isVerifiable)
             && ToolQualificationArtifactValidation.hasDistinctIdentities(modelReceiptArtifacts)
             && ToolQualificationArtifactValidation.areDisjoint(inputArtifacts, modelReceiptArtifacts)
@@ -78,6 +96,7 @@ public struct ToolQualificationCaseExecution: Sendable, Hashable, Codable {
         }
         let normalized = Self(caseID: caseID, executionID: executionID, producer: producer,
             executableArtifact: executableArtifact, inputArtifacts: inputArtifacts,
+            phaseIDs: phaseIDs, metricPhaseIDs: metricPhaseIDs,
             modelReceiptArtifacts: modelReceiptArtifacts, observedMetrics: observedMetrics,
             schemaVersion: schemaVersion)
         return try ToolQualificationCanonicalJSON.encode(normalized)

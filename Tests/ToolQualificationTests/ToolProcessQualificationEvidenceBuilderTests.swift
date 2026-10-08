@@ -9,6 +9,98 @@ import CircuiteFoundationFoundation
 
 @Suite("Tool process qualification evidence builder")
 struct ToolProcessQualificationEvidenceBuilderTests {
+    @Test("an executed but unobserved phase cannot promote a model")
+    func excludesUnobservedPhaseModelCoverage() async throws {
+        let fixture = try Fixture(phaseIDs: ["observed", "unobserved"],
+            observedPhaseIDs: ["observed"], receiptPhaseIDs: ["observed", "unobserved"])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        #expect(evidence.qualifiedModelIDs == ["process-model-a"])
+        try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.unexecutedModels(["process-model-b"])) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(
+                fixture.request(now: now, qualifiedModelIDs: ["process-model-b"]), reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("distinct phases consume the same actual instance with different effective parameters")
+    func acceptsSameActualInstanceAcrossPhases() async throws {
+        let fixture = try Fixture(modelIDs: ["process-model-a", "process-model-a"],
+            phaseIDs: ["point-1", "point-2"], observedPhaseIDs: ["point-1", "point-2"],
+            receiptPhaseIDs: ["point-1", "point-2"], sharedInstanceID: "actual-instance")
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        #expect(evidence.qualifiedModelIDs == ["process-model-a"])
+        try await ToolProcessQualificationEvidenceValidator().validate(evidence, reading: fixture.reader, at: now)
+    }
+
+    @Test("validator cannot promote a retained but unobserved model phase")
+    func validatorRejectsUnobservedPhaseCoverageClaim() async throws {
+        let fixture = try Fixture(phaseIDs: ["observed", "unobserved"],
+            observedPhaseIDs: ["observed"], receiptPhaseIDs: ["observed", "unobserved"])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let evidence = try await ToolProcessQualificationEvidenceBuilder().build(
+            fixture.request(now: now), reading: fixture.reader, at: now)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(evidence)) as? [String: Any])
+        object["qualifiedModelIDs"] = ["process-model-a", "process-model-b"]
+        let forged = try JSONDecoder().decode(ToolProcessQualificationEvidence.self,
+            from: JSONSerialization.data(withJSONObject: object))
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.self) {
+            try await ToolProcessQualificationEvidenceValidator().validate(forged, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("phase inventories and every metric binding are mandatory and complete",
+        arguments: ["empty", "duplicate", "missing-metric", "extra-metric", "empty-binding", "duplicate-binding", "unknown-phase"])
+    func refusesInvalidPhaseObservationBindings(_ invalidity: String) throws {
+        let fixture = try Fixture(modelIDs: [])
+        defer { fixture.remove() }
+        let original = try fixture.execution(oracle: false)
+        let phases = invalidity == "empty" ? [] : invalidity == "duplicate" ? ["analysis", "analysis"] : ["analysis"]
+        var bindings = original.metricPhaseIDs
+        switch invalidity {
+        case "missing-metric": bindings = [:]
+        case "extra-metric": bindings["extra"] = ["analysis"]
+        case "empty-binding": bindings["case-result"] = []
+        case "duplicate-binding": bindings["case-result"] = ["analysis", "analysis"]
+        case "unknown-phase": bindings["case-result"] = ["unknown"]
+        default: break
+        }
+        let invalid = ToolQualificationCaseExecution(caseID: original.caseID, executionID: original.executionID,
+            producer: original.producer, executableArtifact: original.executableArtifact,
+            inputArtifacts: original.inputArtifacts, phaseIDs: phases, metricPhaseIDs: bindings,
+            modelReceiptArtifacts: original.modelReceiptArtifacts, observedMetrics: original.observedMetrics)
+        #expect(!invalid.isStructurallyValid)
+        #expect(throws: ToolProcessQualificationEvidenceBuildError.self) { _ = try invalid.canonicalData() }
+    }
+
+    @Test("phase intake cannot synthesize missing execution or receipt fields")
+    func rejectsMissingMandatoryPhaseFields() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        for key in ["phaseIDs", "metricPhaseIDs"] {
+            var original = try #require(JSONSerialization.jsonObject(with: fixture.execution(oracle: false).canonicalData()) as? [String: Any])
+            original.removeValue(forKey: key)
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(ToolQualificationCaseExecution.self,
+                    from: JSONSerialization.data(withJSONObject: original))
+            }
+        }
+        for key in ["phaseID", "consumedInstances"] {
+            var receipt = try #require(JSONSerialization.jsonObject(with: fixture.receipt(oracle: false).canonicalData()) as? [String: Any])
+            receipt.removeValue(forKey: key)
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(ToolQualificationModelExecutionReceipt.self,
+                    from: JSONSerialization.data(withJSONObject: receipt))
+            }
+        }
+    }
+
     @Test("requested model IDs cannot qualify without executed model receipts")
     func rejectsRequestedModelWithoutExecutedReceipt() async throws {
         let fixture = try Fixture()
@@ -75,12 +167,12 @@ struct ToolProcessQualificationEvidenceBuilderTests {
             identifier: original.producer.identifier, version: original.producer.version)
         let invalidExecution = ToolQualificationCaseExecution(caseID: original.caseID,
             executionID: original.executionID, producer: producer, executableArtifact: original.executableArtifact,
-            inputArtifacts: original.inputArtifacts, modelReceiptArtifacts: original.modelReceiptArtifacts,
+            inputArtifacts: original.inputArtifacts, phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs, modelReceiptArtifacts: original.modelReceiptArtifacts,
             observedMetrics: original.observedMetrics)
         let invalidReceipt = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID,
-            executionID: receipt.executionID, producer: producer, modelID: receipt.modelID,
+            executionID: receipt.executionID, producer: producer, phaseID: receipt.phaseID, modelID: receipt.modelID,
             sourceArtifact: receipt.sourceArtifact, selectedModelIdentifier: receipt.selectedModelIdentifier,
-            consumedInstanceIDs: receipt.consumedInstanceIDs, inputArtifacts: receipt.inputArtifacts,
+            consumedInstances: receipt.consumedInstances, inputArtifacts: receipt.inputArtifacts,
             modelVersion: receipt.modelVersion, resolvedParameters: receipt.resolvedParameters)
         #expect(!invalidExecution.isStructurallyValid)
         #expect(!invalidReceipt.isStructurallyValid)
@@ -151,7 +243,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let original = try fixture.execution(oracle: false)
         let second = try await fixture.store("second-case", data: ToolQualificationCaseExecution(
             caseID: "case-2", executionID: "second-primary-run", producer: original.producer,
-            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts, phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs,
             modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
         let outcome = ToolQualificationCaseOutcome(caseID: "case-2", originalExecutionArtifact: second,
             coverageTags: ["fixture"], comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)])
@@ -176,7 +268,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let otherInput = try await fixture.store("different-case-input", data: Data("different input".utf8))
         let differentInputOutput = try await fixture.store("different-input-output", data: ToolQualificationCaseExecution(
             caseID: original.caseID, executionID: original.executionID, producer: original.producer,
-            executableArtifact: original.executableArtifact, inputArtifacts: [otherInput],
+            executableArtifact: original.executableArtifact, inputArtifacts: [otherInput], phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs,
             modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
         var inputRequest = fixture.request(now: now)
         inputRequest.inputArtifacts.append(otherInput)
@@ -184,12 +276,12 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         inputRequest.oracleResultArtifacts = [try await fixture.storeOracle(
             oracle: fixture.outcome(original: differentInputOutput), additionalInputs: [otherInput])]
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs")) {
+            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs and phase bindings")) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(inputRequest, reading: fixture.reader, at: now)
         }
         let wrongExecutableOutput = try await fixture.store("wrong-executable-output", data: ToolQualificationCaseExecution(
             caseID: original.caseID, executionID: original.executionID, producer: original.producer,
-            executableArtifact: fixture.identity.toolExecutable, inputArtifacts: original.inputArtifacts,
+            executableArtifact: fixture.identity.toolExecutable, inputArtifacts: original.inputArtifacts, phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs,
             modelReceiptArtifacts: [], observedMetrics: original.observedMetrics).canonicalData())
         var executableRequest = fixture.request(now: now)
         executableRequest.outputArtifacts.append(wrongExecutableOutput)
@@ -200,25 +292,26 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         }
     }
 
-    @Test("independent model source, version, selection and conditions must agree",
-        arguments: ["geometry", "version", "selection", "source"])
+    @Test("independent model source, version, selection, phase and effective conditions must agree",
+        arguments: ["geometry", "version", "selection", "source", "phase", "modelParameters"])
     func rejectsDifferentResolvedModelConditions(_ mismatch: String) async throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(phaseIDs: ["analysis", "alternate"])
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_000)
         let original = try fixture.execution(oracle: true)
         let receipt = try fixture.receipt(oracle: true)
         let changedReceipt = ToolQualificationModelExecutionReceipt(
             caseID: receipt.caseID, executionID: receipt.executionID, producer: receipt.producer,
+            phaseID: mismatch == "phase" ? "alternate" : receipt.phaseID,
             modelID: receipt.modelID, sourceArtifact: mismatch == "source" ? fixture.input : receipt.sourceArtifact,
             selectedModelIdentifier: mismatch == "selection" ? "different-selected-bin" : receipt.selectedModelIdentifier,
-            consumedInstanceIDs: receipt.consumedInstanceIDs,
+            consumedInstances: mismatch == "geometry" ? ["instance-0": ["width": 0.000002, "temperature": 300]] : receipt.consumedInstances,
             inputArtifacts: receipt.inputArtifacts, modelVersion: mismatch == "version" ? nil : receipt.modelVersion,
-            resolvedParameters: mismatch == "geometry" ? ["width": 0.000002, "temperature": 300] : receipt.resolvedParameters)
+            resolvedParameters: mismatch == "modelParameters" ? ["threshold": 0.6] : receipt.resolvedParameters)
         let reference = try await fixture.store("changed-receipt", data: changedReceipt.canonicalData())
         let changedExecution = ToolQualificationCaseExecution(
             caseID: original.caseID, executionID: original.executionID, producer: original.producer,
-            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts, phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs,
             modelReceiptArtifacts: [reference] + Array(fixture.oracleReceipts.dropFirst()),
             observedMetrics: original.observedMetrics)
         let output = try await fixture.store("changed-oracle-output", data: changedExecution.canonicalData())
@@ -227,7 +320,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         request.oracleResultArtifacts = [try await fixture.storeOracle(
             oracle: fixture.outcome(original: output), additionalOracleOutputs: [reference])]
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-            caseID: "case-1", reason: "primary and oracle selected model source, version, instances or resolved conditions differ")) {
+            caseID: "case-1", reason: "primary and oracle selected model source, version, phases, instances or resolved conditions differ")) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
         }
     }
@@ -241,19 +334,20 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let oracle = try fixture.execution(oracle: true)
         let output = try await fixture.store("aliased-oracle-output", data: ToolQualificationCaseExecution(
             caseID: oracle.caseID, executionID: primary.executionID, producer: oracle.producer,
-            executableArtifact: oracle.executableArtifact, inputArtifacts: oracle.inputArtifacts,
+            executableArtifact: oracle.executableArtifact, inputArtifacts: oracle.inputArtifacts, phaseIDs: oracle.phaseIDs, metricPhaseIDs: oracle.metricPhaseIDs,
             modelReceiptArtifacts: [], observedMetrics: oracle.observedMetrics).canonicalData())
         var request = fixture.request(now: now)
         request.outputArtifacts.append(output)
         request.oracleResultArtifacts = [try await fixture.storeOracle(oracle: fixture.outcome(original: output))]
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs")) {
+            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs and phase bindings")) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
         }
     }
 
-    @Test("conflicting receipts cannot consume the same model instance twice")
-    func rejectsDuplicateConsumedModelInstance() async throws {
+    @Test("receipts refuse unknown phases and duplicate consumption within one phase",
+        arguments: ["duplicate", "unknown-phase"])
+    func rejectsDuplicateConsumedModelInstance(_ invalidity: String) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_000)
@@ -261,13 +355,14 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let receipt = try fixture.receipt(oracle: false)
         let duplicate = try await fixture.store("duplicate-receipt", data: ToolQualificationModelExecutionReceipt(
             caseID: receipt.caseID, executionID: receipt.executionID, producer: receipt.producer,
+            phaseID: invalidity == "unknown-phase" ? "unknown" : receipt.phaseID,
             modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
-            selectedModelIdentifier: "conflicting-selected-model", consumedInstanceIDs: receipt.consumedInstanceIDs,
+            selectedModelIdentifier: "conflicting-selected-model", consumedInstances: receipt.consumedInstances,
             inputArtifacts: receipt.inputArtifacts, modelVersion: receipt.modelVersion,
             resolvedParameters: receipt.resolvedParameters).canonicalData())
         let output = try await fixture.store("duplicate-receipt-output", data: ToolQualificationCaseExecution(
             caseID: original.caseID, executionID: original.executionID, producer: original.producer,
-            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts, phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs,
             modelReceiptArtifacts: original.modelReceiptArtifacts + [duplicate],
             observedMetrics: original.observedMetrics).canonicalData())
         var request = fixture.request(now: now)
@@ -278,20 +373,44 @@ struct ToolProcessQualificationEvidenceBuilderTests {
             outputArtifacts: [output, duplicate] + fixture.primaryReceipts,
             cases: [fixture.outcome(original: output)], checkedAt: now).canonicalData())]
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
-            caseID: "case-1", reason: "receipt has a different execution/input binding or duplicates a consumed instance")) {
+            caseID: "case-1", reason: "receipt has a different execution/input/phase binding or duplicates a consumed instance within one phase")) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
         }
     }
 
-    @Test("retained model receipt bytes are independently verified")
-    func rejectsAlteredModelReceipt() async throws {
-        let fixture = try Fixture()
+    @Test("independent executions must agree on completed phases and metric contributors",
+        arguments: ["inventory", "metric-binding"])
+    func rejectsDifferentOraclePhaseBindings(_ mismatch: String) async throws {
+        let fixture = try Fixture(modelIDs: [], phaseIDs: ["analysis", "alternate"])
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_000)
+        let original = try fixture.execution(oracle: true)
+        let changed = ToolQualificationCaseExecution(caseID: original.caseID, executionID: original.executionID,
+            producer: original.producer, executableArtifact: original.executableArtifact,
+            inputArtifacts: original.inputArtifacts,
+            phaseIDs: mismatch == "inventory" ? ["analysis"] : original.phaseIDs,
+            metricPhaseIDs: mismatch == "metric-binding" ? ["case-result": ["alternate"]] : original.metricPhaseIDs,
+            modelReceiptArtifacts: [], observedMetrics: original.observedMetrics)
+        let output = try await fixture.store("different-oracle-phases", data: changed.canonicalData())
+        var request = fixture.request(now: now)
+        request.outputArtifacts.append(output)
+        request.oracleResultArtifacts = [try await fixture.storeOracle(oracle: fixture.outcome(original: output))]
+        await #expect(throws: ToolProcessQualificationEvidenceBuildError.caseBindingMismatch(
+            caseID: "case-1", reason: "independent executions require distinct outputs and receipts with identical case inputs and phase bindings")) {
+            _ = try await ToolProcessQualificationEvidenceBuilder().build(request, reading: fixture.reader, at: now)
+        }
+    }
+
+    @Test("retained model receipt bytes are independently verified even for unobserved phases", arguments: [0, 1])
+    func rejectsAlteredModelReceipt(_ index: Int) async throws {
+        let fixture = try Fixture(phaseIDs: ["observed", "unobserved"],
+            observedPhaseIDs: ["observed"], receiptPhaseIDs: ["observed", "unobserved"])
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_000)
         try Data("altered receipt".utf8).write(
-            to: fixture.root.appending(path: "qualification/primary-run-receipt-0.json"), options: .atomic)
+            to: fixture.root.appending(path: "qualification/primary-run-receipt-\(index).json"), options: .atomic)
         await #expect(throws: ToolProcessQualificationEvidenceBuildError.artifactIntegrityFailed(
-            fixture.primaryReceipts[0].id.description)) {
+            fixture.primaryReceipts[index].id.description)) {
             _ = try await ToolProcessQualificationEvidenceBuilder().build(
                 fixture.request(now: now), reading: fixture.reader, at: now)
         }
@@ -357,15 +476,21 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         defer { fixture.remove() }
         let receipt = try fixture.receipt(oracle: false)
         let unknown = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID, executionID: receipt.executionID,
-            producer: receipt.producer, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
-            selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstanceIDs: receipt.consumedInstanceIDs,
+            producer: receipt.producer, phaseID: receipt.phaseID, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
+            selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstances: receipt.consumedInstances,
             inputArtifacts: receipt.inputArtifacts, resolvedParameters: receipt.resolvedParameters)
         let decoded = try ToolQualificationModelExecutionReceipt.decodeCanonical(from: unknown.canonicalData())
         #expect(decoded.modelVersion == nil)
-        for (instances, parameters) in [([], ["temperature": 300.0]), (["instance-0"], ["temperature": Double.infinity]), (["instance-0", "instance-0"], ["temperature": 300.0])] {
+        let invalidCases: [([String: [String: Double]], [String: Double])] = [
+            ([:], ["threshold": 0.5]),
+            (["instance-0": ["temperature": 300]], ["threshold": .infinity]),
+            (["instance-0": ["temperature": .infinity]], ["threshold": 0.5]),
+            (["": ["temperature": 300]], ["threshold": 0.5])
+        ]
+        for (instances, parameters) in invalidCases {
             let invalid = ToolQualificationModelExecutionReceipt(caseID: receipt.caseID, executionID: receipt.executionID,
-                producer: receipt.producer, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
-                selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstanceIDs: instances,
+                producer: receipt.producer, phaseID: receipt.phaseID, modelID: receipt.modelID, sourceArtifact: receipt.sourceArtifact,
+                selectedModelIdentifier: receipt.selectedModelIdentifier, consumedInstances: instances,
                 inputArtifacts: receipt.inputArtifacts, resolvedParameters: parameters)
             #expect(!invalid.isStructurallyValid)
             #expect(throws: ToolProcessQualificationEvidenceBuildError.self) { _ = try invalid.canonicalData() }
@@ -663,6 +788,7 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         data: Data
     ) throws {
         var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let currentVersion = try #require(object["schemaVersion"] as? Int)
 
         object.removeValue(forKey: "schemaVersion")
         let missing = try JSONSerialization.data(withJSONObject: object)
@@ -674,6 +800,11 @@ struct ToolProcessQualificationEvidenceBuilderTests {
         let unsupported = try JSONSerialization.data(withJSONObject: object)
         #expect(throws: DecodingError.self) {
             _ = try JSONDecoder().decode(type, from: unsupported)
+        }
+        object["schemaVersion"] = currentVersion - 1
+        let obsolete = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(type, from: obsolete)
         }
     }
 }
@@ -694,7 +825,9 @@ private struct Fixture {
     let issuer: ProducerIdentity
     let reader: VerifiedFileQualificationArtifactReader
 
-    init(modelIDs: [String] = ["process-model-a", "process-model-b"], producerKind: ProducerKind = .engine) throws {
+    init(modelIDs: [String] = ["process-model-a", "process-model-b"], producerKind: ProducerKind = .engine,
+        phaseIDs: [String] = ["analysis"], observedPhaseIDs: [String] = ["analysis"],
+        receiptPhaseIDs: [String]? = nil, sharedInstanceID: String? = nil) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("tool-qualification-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -737,17 +870,19 @@ private struct Fixture {
         let primaryProducer = try ProducerIdentity(kind: producerKind, identifier: scope.implementationID, version: scope.toolVersion)
         let oracleProducer = try ProducerIdentity(kind: producerKind, identifier: "independent-scan-oracle", version: "2.0.0")
         primaryReceipts = try Self.receipts(root: root, inputs: inputs, source: modelSource,
-            producer: primaryProducer, executionID: "primary-run", modelIDs: modelIDs)
+            producer: primaryProducer, executionID: "primary-run", modelIDs: modelIDs,
+            phaseIDs: receiptPhaseIDs, sharedInstanceID: sharedInstanceID)
         oracleReceipts = try Self.receipts(root: root, inputs: inputs, source: modelSource,
-            producer: oracleProducer, executionID: "oracle-run", modelIDs: modelIDs)
+            producer: oracleProducer, executionID: "oracle-run", modelIDs: modelIDs,
+            phaseIDs: receiptPhaseIDs, sharedInstanceID: sharedInstanceID)
         output = try Self.artifact("output", root: root, data: ToolQualificationCaseExecution(
             caseID: "case-1", executionID: "primary-run", producer: primaryProducer,
-            executableArtifact: tool, inputArtifacts: inputs, modelReceiptArtifacts: primaryReceipts,
+            executableArtifact: tool, inputArtifacts: inputs, phaseIDs: phaseIDs, metricPhaseIDs: ["case-result": observedPhaseIDs], modelReceiptArtifacts: primaryReceipts,
             observedMetrics: ["case-result": 0]
         ).canonicalData())
         oracleOutput = try Self.artifact("oracle-output", root: root, data: ToolQualificationCaseExecution(
             caseID: "case-1", executionID: "oracle-run", producer: oracleProducer,
-            executableArtifact: oracleTool, inputArtifacts: inputs, modelReceiptArtifacts: oracleReceipts,
+            executableArtifact: oracleTool, inputArtifacts: inputs, phaseIDs: phaseIDs, metricPhaseIDs: ["case-result": observedPhaseIDs], modelReceiptArtifacts: oracleReceipts,
             observedMetrics: ["case-result": 0]
         ).canonicalData())
         let checkedAt = Date(timeIntervalSince1970: 1_000)
@@ -984,15 +1119,17 @@ private struct Fixture {
 
     private static func receipts(
         root: URL, inputs: [ArtifactReference], source: ArtifactReference,
-        producer: ProducerIdentity, executionID: String, modelIDs: [String]
+        producer: ProducerIdentity, executionID: String, modelIDs: [String],
+        phaseIDs: [String]?, sharedInstanceID: String?
     ) throws -> [ArtifactReference] {
         try modelIDs.enumerated().map { index, modelID in
             try artifact("\(executionID)-receipt-\(index)", root: root,
                 data: ToolQualificationModelExecutionReceipt(
                     caseID: "case-1", executionID: executionID, producer: producer,
+                    phaseID: phaseIDs?[index] ?? "analysis",
                     modelID: modelID, sourceArtifact: source, selectedModelIdentifier: "selected-\(modelID)",
-                    consumedInstanceIDs: ["instance-\(index)"], inputArtifacts: inputs,
-                    modelVersion: "declared-v1", resolvedParameters: ["width": 0.000001, "temperature": 300]
+                    consumedInstances: [sharedInstanceID ?? "instance-\(index)": ["width": 0.000001 * Double(index + 1), "temperature": 300]], inputArtifacts: inputs,
+                    modelVersion: "declared-v1", resolvedParameters: ["threshold": 0.5]
                 ).canonicalData())
         }
     }
