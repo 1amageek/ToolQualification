@@ -12,6 +12,7 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
     public var maximumEvidenceAgeSeconds: TimeInterval?
     public var requirePassingHealthCheck: Bool
     public var qualificationScope: ToolQualificationScope?
+    public var assessmentPolicyArtifact: ArtifactReference?
     public var requireIndependentQualificationEvidence: Bool
 
     public init(
@@ -25,6 +26,7 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         maximumEvidenceAgeSeconds: TimeInterval? = nil,
         requirePassingHealthCheck: Bool = true,
         qualificationScope: ToolQualificationScope? = nil,
+        assessmentPolicyArtifact: ArtifactReference? = nil,
         requireIndependentQualificationEvidence: Bool = false
     ) {
         self.kind = kind
@@ -37,6 +39,7 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         self.maximumEvidenceAgeSeconds = maximumEvidenceAgeSeconds
         self.requirePassingHealthCheck = requirePassingHealthCheck
         self.qualificationScope = qualificationScope
+        self.assessmentPolicyArtifact = assessmentPolicyArtifact
         self.requireIndependentQualificationEvidence = requireIndependentQualificationEvidence
     }
 
@@ -51,6 +54,7 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
         case maximumEvidenceAgeSeconds
         case requirePassingHealthCheck
         case qualificationScope
+        case assessmentPolicyArtifact
         case requireIndependentQualificationEvidence
     }
 
@@ -83,6 +87,7 @@ public struct ToolTrustRequirement: Sendable, Hashable, Codable {
             Bool.self,
             forKey: .requirePassingHealthCheck
         )
+        self.assessmentPolicyArtifact = try container.decodeIfPresent(ArtifactReference.self, forKey: .assessmentPolicyArtifact)
         self.qualificationScope = try container.decodeIfPresent(
             ToolQualificationScope.self,
             forKey: .qualificationScope
@@ -109,6 +114,8 @@ extension ToolTrustRequirement {
             qualificationScope: requiresProductionQualification
                 ? descriptor.trustProfile.processQualification?.scope
                 : nil,
+            assessmentPolicyArtifact: descriptor.trustProfile.assessmentPolicyArtifact
+                ?? descriptor.trustProfile.processQualification?.scope.assessmentPolicyArtifact,
             requireIndependentQualificationEvidence: requiresProductionQualification
         )
     }

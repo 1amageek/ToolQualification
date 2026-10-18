@@ -8,6 +8,97 @@ import ToolQualificationCLICore
 
 @Suite("ToolQualification process evidence build CLI")
 struct ToolQualificationBuildProcessEvidenceCLITests {
+    @Test("all five actual CLI commands consume an independently pinned retained policy", .timeLimit(.minutes(1)))
+    func actualExecutableCommands() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let retainedRoot = environment["TOOLQUALIFICATION_CLI_EVIDENCE_ROOT"].map { URL(fileURLWithPath: $0) }
+        let directory = try retainedRoot.map { $0.appending(path: "five-command") } ?? makeTemporaryDirectory()
+        if retainedRoot != nil {
+            #expect(!FileManager.default.fileExists(atPath: directory.path))
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { if retainedRoot == nil { remove(directory) } }
+        var executable = URL(fileURLWithPath: CommandLine.arguments[0])
+        while executable.lastPathComponent != "debug" && executable.path != "/" {
+            executable.deleteLastPathComponent()
+        }
+        executable.append(path: "toolqualification")
+        if let path = environment["TOOLQUALIFICATION_EXECUTABLE_PATH"] { executable = URL(fileURLWithPath: path) }
+        #expect(FileManager.default.isExecutableFile(atPath: executable.path))
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        let request = try makeRequest(now: now, root: directory, independent: true)
+        let inventory = try ToolQualificationCLIArtifactFixture().writeQualificationDirectoryInventory(root: directory)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .deferredToDate
+        func write<Value: Encodable>(_ name: String, _ value: Value) throws -> String {
+            let url = directory.appending(path: name + ".json")
+            try encoder.encode(value).write(to: url, options: .atomic)
+            return url.path
+        }
+        let requestPath = try write("build-request", request)
+        let evidencePath = directory.appending(path: "process-evidence.json").path
+        let common = ["--workspace-root", directory.path, "--availability-inventory", inventory.path]
+        #expect(try await launchCLI(executable, ["build-process-evidence", "--input", requestPath,
+            "--output", evidencePath, "--at", String(now.timeIntervalSince1970)] + common,
+            output: directory.appending(path: "01-build.stdout.json")) == 0)
+        #expect(try await launchCLI(executable, ["validate-process-evidence", "--evidence", evidencePath,
+            "--at", String(now.timeIntervalSince1970)] + common,
+            output: directory.appending(path: "02-validate.stdout.json")) == 0)
+        let decoder = JSONDecoder()
+        let evidence = try decoder.decode(ToolProcessQualificationEvidence.self, from: Data(contentsOf: URL(fileURLWithPath: evidencePath)))
+        let descriptor = ToolDescriptor(toolID: request.toolID, displayName: "Policy fixture", kind: .drc,
+            version: request.scope.toolVersion, capabilities: [ToolCapability(operationID: "run-drc", inputFormats: [], outputFormats: [])],
+            trustProfile: ToolTrustProfile(level: .productionEligible,
+                evidence: evidence.corpusEvidence + evidence.oracleEvidence + evidence.healthEvidence,
+                processQualification: evidence, assessmentPolicyArtifact: request.scope.assessmentPolicyArtifact),
+            environment: ToolEnvironment(platform: "macOS", requiredAssets: []))
+        let health = ToolHealthCheckResult(toolID: request.toolID, status: .passed)
+        let requirement = ToolTrustRequirement(kind: .drc, operationID: "run-drc", minimumLevel: .productionEligible,
+            qualificationScope: request.scope, requireIndependentQualificationEvidence: true)
+        let descriptorPath = try write("descriptor", descriptor)
+        let requirementPath = try write("requirement", requirement)
+        let healthPath = try write("health", health)
+        let issuance = try ToolQualificationRecordIssuanceRequest(recordID: "policy-fixture-record", descriptor: descriptor,
+            health: health, issuer: ProducerIdentity(kind: .engine, identifier: "policy-fixture-issuer", version: "1"), issuedAt: now)
+        #expect(try await launchCLI(executable, ["issue-record", "--input", try write("issuance", issuance),
+            "--record-path", "issued-record.json", "--reference-output", directory.appending(path: "issued-reference.json").path] + common,
+            output: directory.appending(path: "03-issue.stdout.json")) == 0)
+        #expect(try await launchCLI(executable, ["evaluate", "--descriptor", descriptorPath,
+            "--requirement", requirementPath, "--health", healthPath] + common,
+            output: directory.appending(path: "04-evaluate.stdout.json")) == 0)
+        #expect(try await launchCLI(executable, ["evaluate-registry", "--descriptors", try write("descriptors", [descriptor]),
+            "--requirement", requirementPath, "--health-results", try write("health-results", [request.toolID: health])] + common,
+            output: directory.appending(path: "05-registry.stdout.json")) == 0)
+        let record = try ToolQualificationRecord.decodeCanonical(from: Data(contentsOf: directory.appending(path: "issued-record.json")))
+        #expect(record.descriptor.trustProfile.processQualification == evidence)
+        #expect(evidence.scope.assessmentPolicyArtifact == request.scope.assessmentPolicyArtifact)
+        let criterion = try #require(request.scope.assessmentPolicyArtifact)
+        let policyBinding = try #require(try JSONDecoder().decode(ToolQualificationCLIArtifactAvailabilityInventory.self,
+            from: Data(contentsOf: inventory)).availabilities.first { $0.artifactID == criterion.id })
+        guard case .local(_, _, let policyPath) = policyBinding else { Issue.record("Expected local policy input"); return }
+        try FileManager.default.removeItem(at: directory.appending(path: policyPath.stringValue))
+        #expect(try await launchCLI(executable, ["evaluate", "--descriptor", descriptorPath,
+            "--requirement", requirementPath, "--health", healthPath] + common,
+            output: directory.appending(path: "06-missing-policy.stdout.json")) == 2)
+    }
+
+    private func launchCLI(_ executable: URL, _ arguments: [String], output: URL) async throws -> Int32 {
+        let process = Process(); process.executableURL = executable; process.arguments = arguments
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let file = try FileHandle(forWritingTo: output)
+        process.standardOutput = file; process.standardError = file
+        do {
+            let code = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
+                process.terminationHandler = { completed in continuation.resume(returning: completed.terminationStatus) }
+                do { try process.run() } catch { continuation.resume(throwing: error) }
+            }
+            try file.close()
+            return code
+        } catch {
+            try file.close()
+            throw error
+        }
+    }
+
     @Test("build-process-evidence verifies artifacts and writes a qualified record")
     func writesQualifiedRecord() async throws {
         let directory = try makeTemporaryDirectory()
@@ -148,7 +239,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             ruleDeck: deck,
             oracleExecutable: oracleTool
         )
-        let scope = ToolQualificationScope(
+        var scope = ToolQualificationScope(
             implementationID: "qualified-scan",
             toolVersion: "1.0.0",
             binaryDigest: tool.digest.hexadecimalValue,
@@ -167,15 +258,18 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
         let input = try artifact("input", root: root)
         let source = try artifact("model-source", root: root)
         let inputs = [input, source]
+        let assessment = try AssessmentFixture(root: root, caseID: "case-1", metricID: "case-result", originalInputs: inputs)
+        scope.assessmentPolicyArtifact = assessment.policy
+        let retainedInputs = inputs + assessment.inputs
         let artifactFixture = try ToolQualificationCLIArtifactFixture()
         let primaryExecution = try artifactFixture.writeExecution(root: root, caseID: "case-1",
             executionID: "output", implementationID: scope.implementationID, version: scope.toolVersion,
             executable: tool, inputs: inputs, source: source, modelIDs: ["process-model-a"],
-            observations: ["case-result": 0])
+            observations: ["case-result": 0], definitions: ["case-result": assessment.definition])
         let oracleExecution = try artifactFixture.writeExecution(root: root, caseID: "case-1",
             executionID: "oracle-output", implementationID: oracleID, version: "2.0.0",
             executable: oracleTool, inputs: inputs, source: source, modelIDs: ["process-model-a"],
-            observations: ["case-result": 0])
+            observations: ["case-result": 0], definitions: ["case-result": assessment.definition])
         let output = primaryExecution.original
         let oracleOutput = oracleExecution.original
         let issuer = try ProducerIdentity(
@@ -192,7 +286,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: inputs,
+                inputArtifacts: retainedInputs,
                 outputArtifacts: [output] + primaryExecution.receipts,
                 cases: [ToolQualificationCaseOutcome(
                     caseID: "case-1",
@@ -201,7 +295,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                     comparisons: [ToolQualificationMetricComparison(
                         metricID: "case-result",
                         observed: 0,
-                        expected: 0
+                        expected: 0, criterionArtifact: assessment.primaryCriterion
                     )]
                 )],
                 checkedAt: now
@@ -217,7 +311,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 oracleToolID: oracleID,
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: inputs,
+                inputArtifacts: retainedInputs,
                 primaryOutputArtifacts: [output] + primaryExecution.receipts,
                 oracleOutputArtifacts: [oracleOutput] + oracleExecution.receipts,
                 cases: [ToolOracleCaseComparison(
@@ -226,18 +320,18 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                         caseID: "case-1",
                         originalExecutionArtifact: output,
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0, criterionArtifact: assessment.primaryCriterion)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case-1",
                         originalExecutionArtifact: oracleOutput,
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0, criterionArtifact: assessment.primaryCriterion)]
                     ),
                     agreementComparisons: [ToolOracleMetricComparison(
                         metricID: "case-result",
                         primaryObserved: 0,
-                        oracleObserved: 0
+                        oracleObserved: 0, criterionArtifact: assessment.agreementCriterion
                     )]
                 )],
                 checkedAt: now
@@ -252,7 +346,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
                 toolID: "qualified-scan",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: inputs,
+                inputArtifacts: retainedInputs,
                 outputArtifacts: [output],
                 checkedAt: now
             ).canonicalData()
@@ -265,7 +359,7 @@ struct ToolQualificationBuildProcessEvidenceCLITests {
             corpusResultArtifacts: [corpus],
             oracleResultArtifacts: [oracle],
             healthResultArtifacts: [health],
-            inputArtifacts: inputs,
+            inputArtifacts: retainedInputs,
             outputArtifacts: [output, oracleOutput] + primaryExecution.receipts + oracleExecution.receipts,
             qualifiedModelIDs: ["process-model-a"],
             qualifiedAt: now.addingTimeInterval(-10),

@@ -140,6 +140,16 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         let qualifiedModelIDs = try caseBoundModels(
             corpus: corpusEvidence.cases, oracle: oracleEvidence.cases
         )
+        for result in corpusEvidence.results {
+            try await ToolQualificationAssessmentValidator(reader: artifacts).validateCorpus(
+                result, expectedPolicy: request.scope.assessmentPolicyArtifact)
+        }
+        for result in oracleEvidence.results {
+            try await ToolQualificationAssessmentValidator(reader: artifacts).validateOracle(
+                result, expectedPolicy: request.scope.assessmentPolicyArtifact)
+        }
+        try await ToolQualificationAssessmentValidator(reader: artifacts).validateCoverage(
+            caseIDs: Set(corpusEvidence.cases.keys), scope: request.scope, inputs: inputArtifacts)
         let missingModels = Set(request.qualifiedModelIDs).subtracting(qualifiedModelIDs)
         guard missingModels.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.unexecutedModels(missingModels.sorted())
@@ -177,12 +187,13 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         outputArtifacts: [ArtifactReference],
         reading artifacts: any ToolQualificationArtifactReading,
         evaluatedAt: Date
-    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedCase]) {
+    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedCase], results: [ToolCorpusQualificationResult]) {
         guard !request.corpusResultArtifacts.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.missingEvidence(.corpus)
         }
         var evidenceItems: [ToolEvidence] = []
         var cases: [String: VerifiedCase] = [:]
+        var results: [ToolCorpusQualificationResult] = []
         for artifact in request.corpusResultArtifacts {
             let data = try await artifacts.verifiedData(for: artifact)
             let result: ToolCorpusQualificationResult
@@ -230,8 +241,9 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 try requireInventory(verified, inputs: result.inputArtifacts, outputs: result.outputArtifacts)
                 cases[outcome.caseID] = verified
             }
+            results.append(result)
         }
-        return (evidenceItems, cases)
+        return (evidenceItems, cases, results)
     }
 
     private func oracleEvidence(
@@ -240,12 +252,13 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
         outputArtifacts: [ArtifactReference],
         reading artifacts: any ToolQualificationArtifactReading,
         evaluatedAt: Date
-    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedOracleCase]) {
+    ) async throws -> (evidence: [ToolEvidence], cases: [String: VerifiedOracleCase], results: [ToolOracleQualificationResult]) {
         guard !request.oracleResultArtifacts.isEmpty else {
             throw ToolProcessQualificationEvidenceBuildError.missingEvidence(.oracle)
         }
         var evidenceItems: [ToolEvidence] = []
         var cases: [String: VerifiedOracleCase] = [:]
+        var results: [ToolOracleQualificationResult] = []
         for artifact in request.oracleResultArtifacts {
             let data = try await artifacts.verifiedData(for: artifact)
             let result: ToolOracleQualificationResult
@@ -306,8 +319,9 @@ public struct ToolProcessQualificationEvidenceBuilder: ToolProcessQualificationE
                 try requireInventory(oracle, inputs: result.inputArtifacts, outputs: result.oracleOutputArtifacts)
                 cases[comparison.caseID] = VerifiedOracleCase(comparison: comparison, primary: primary, oracle: oracle)
             }
+            results.append(result)
         }
-        return (evidenceItems, cases)
+        return (evidenceItems, cases, results)
     }
 
     private func caseBoundModels(

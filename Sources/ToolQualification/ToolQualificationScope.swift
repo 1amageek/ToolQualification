@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 
 public struct ToolQualificationScope: Sendable, Hashable, Codable {
     public var implementationID: String
@@ -11,6 +12,7 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
     public var pdkID: String?
     public var pdkDigest: String?
     public var oracle: ToolOracleQualificationScope?
+    public var assessmentPolicyArtifact: ArtifactReference?
 
     public init(
         implementationID: String,
@@ -22,7 +24,8 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
         deckDigest: String,
         pdkID: String? = nil,
         pdkDigest: String? = nil,
-        oracle: ToolOracleQualificationScope? = nil
+        oracle: ToolOracleQualificationScope? = nil,
+        assessmentPolicyArtifact: ArtifactReference? = nil
     ) {
         self.implementationID = implementationID
         self.toolVersion = toolVersion
@@ -34,6 +37,7 @@ public struct ToolQualificationScope: Sendable, Hashable, Codable {
         self.pdkID = pdkID
         self.pdkDigest = pdkDigest?.lowercased()
         self.oracle = oracle
+        self.assessmentPolicyArtifact = assessmentPolicyArtifact
     }
 
     public var isComplete: Bool {

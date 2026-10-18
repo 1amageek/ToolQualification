@@ -195,15 +195,44 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 continue
             }
             var hasPassingResult = false
+            var passingCaseIDs = Set<String>()
             for evidence in freshCandidates where !hasPassingResult {
                 if let failure = await evidenceFailure(
                     evidence,
                     toolID: descriptor.toolID,
                     requiredScope: requirement.qualificationScope,
+                    expectedPolicy: requirement.assessmentPolicyArtifact ?? requirement.qualificationScope?.assessmentPolicyArtifact,
                     requireIndependentOracle: requirement.requireIndependentQualificationEvidence,
                     reading: artifactReader
                 ) {
                     diagnostics.append(failure)
+                } else if kind == .corpus || kind == .oracle {
+                    do {
+                        guard let policyReference = requirement.assessmentPolicyArtifact
+                            ?? requirement.qualificationScope?.assessmentPolicyArtifact else {
+                            throw ToolProcessQualificationEvidenceBuildError.invalidInput("independent assessment policy is required")
+                        }
+                        let policy = try ToolQualificationAssessmentPolicy.decodeCanonical(
+                            from: await artifactReader.verifiedData(for: policyReference))
+                        let requiredCases = Set(policy.requirements.filter {
+                            kind == .corpus || $0.applicability == .primaryAndOracle
+                        }.map(\.caseID))
+                        guard !requiredCases.isEmpty, let reference = evidence.artifact else {
+                            throw ToolProcessQualificationEvidenceBuildError.invalidInput("no applicable retained assessment cases")
+                        }
+                        let data = try await artifactReader.verifiedData(for: reference)
+                        let caseIDs: [String]
+                        if kind == .corpus {
+                            caseIDs = try ToolCorpusQualificationResult.decodeCanonical(from: data).cases.map(\.caseID)
+                        } else {
+                            caseIDs = try ToolOracleQualificationResult.decodeCanonical(from: data).cases.map(\.caseID)
+                        }
+                        passingCaseIDs.formUnion(caseIDs)
+                        hasPassingResult = passingCaseIDs == requiredCases
+                    } catch {
+                        diagnostics.append(evidenceDiagnostic(evidence,
+                            code: "QUALIFICATION_EVIDENCE_ASSESSMENT_FAILED", detail: error.localizedDescription))
+                    }
                 } else {
                     hasPassingResult = true
                 }
@@ -361,6 +390,7 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
         _ evidence: ToolEvidence,
         toolID: String,
         requiredScope: ToolQualificationScope?,
+        expectedPolicy: ArtifactReference?,
         requireIndependentOracle: Bool,
         reading artifacts: any ToolQualificationArtifactReading
     ) async -> ToolDiagnostic? {
@@ -420,6 +450,11 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "corpus findings do not derive a passing result")
                 }
+                do {
+                    try await ToolQualificationAssessmentValidator(reader: artifacts).validateCorpus(result, expectedPolicy: expectedPolicy)
+                } catch {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_ASSESSMENT_FAILED", detail: error.localizedDescription)
+                }
                 if let failure = await boundArtifactFailure(
                     result.inputArtifacts + result.outputArtifacts,
                     evidence: evidence,
@@ -443,6 +478,11 @@ public struct ToolTrustEvaluator: ToolTrustEvaluating, Sendable {
                 }
                 guard result.isPassing else {
                     return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_CASE_MISMATCH", detail: "oracle findings do not derive passing agreement")
+                }
+                do {
+                    try await ToolQualificationAssessmentValidator(reader: artifacts).validateOracle(result, expectedPolicy: expectedPolicy)
+                } catch {
+                    return evidenceDiagnostic(evidence, code: "QUALIFICATION_EVIDENCE_ASSESSMENT_FAILED", detail: error.localizedDescription)
                 }
                 if let failure = await boundArtifactFailure(
                     result.inputArtifacts

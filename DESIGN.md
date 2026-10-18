@@ -186,11 +186,14 @@ Only actually consumed instances establish model coverage.
 
 | Canonical value | Schema version |
 |---|---|
-| Case outcome / original execution / model receipt | 2 |
-| Corpus result | 4 |
-| Oracle result | 5 |
-| Process build request | 8 |
-| Process evidence | 7 |
+| Case outcome / original execution | 3 |
+| Consumed-model receipt | 2 |
+| Corpus result | 5 |
+| Oracle result | 6 |
+| Process build request | 9 |
+| Process evidence | 8 |
+| Qualification record / issuance request | 2 |
+| Assessment policy / criterion / metric definition | 1 |
 
 Receipt inputs equal their original execution's exact input set, which includes
 the model source. Every original input and receipt must also appear in the
@@ -253,6 +256,64 @@ unobserved phase cannot enlarge derived coverage. This migration changes
 execution binding, not physical acceptance criteria.
 
 ### Metric criterion authority: required contract
+
+### Stage III retained assessment policy
+
+The independent caller pins `assessmentPolicyArtifact` in the expected
+`ToolQualificationScope` before observations are produced. This reference is
+part of exact scope equality. A corpus/oracle result cannot select a replacement
+policy, threshold, metric definition or reference for itself. Metric-bearing
+qualified results require a pinned policy; existing nonmetric smoke, raw and
+health contracts remain unchanged. `ToolTrustRequirement.assessmentPolicyArtifact`
+allows an independently pinned primary-only policy without imposing a complete
+production scope. The existing scope identity-completeness predicates remain
+unchanged for nonmetric health; metric-bearing process evidence and numerical
+evaluation own the policy requirement. `ToolTrustProfile.assessmentPolicyArtifact` pins record issuance;
+production requirements also bind the policy through exact scope equality.
+
+The canonical policy contains one requirement for each applicable case/metric,
+its exact case inputs and contributing phases, and a retained domain metric
+definition. Each requirement declares primary-only or primary-and-oracle
+applicability. Primary-only requirements have one primary criterion and no oracle
+or agreement criterion. Primary-and-oracle requirements require all three.
+Nonapplicable observations are not inferred and never count as passing evidence.
+Assessment purpose distinguishes implementation correlation, numerical
+convergence, physical-model validation and circuit requirements. Physical-model
+validation requires retained physical reference/uncertainty/domain definitions;
+other purposes do not invent those references.
+
+Criteria preserve an immutable requirement source, domain metric definition,
+reference inputs and an explicit absolute or combined absolute/relative rule.
+The combined rule is `abs(observed - expected) <= absoluteFloor +
+maximumRelativeError * abs(expected)`; finite inputs, nonnegative limits and
+finite computed bounds are required. Agreement applies the same rule to the
+primary and oracle observations with the oracle observation as the reference. Its purpose
+is declared by the independently pinned criterion; physical references are required
+only when that criterion explicitly declares physical-model validation.
+Definitions preserve units, extraction identity and operating-domain authority.
+Original execution envelopes bind every observed metric to that exact definition
+and its phase inventory. The builder and direct corpus/oracle evaluator verify
+all referenced bytes, applicability, original observations and criterion-derived
+comparison values before accepting a passing result. Multiple retained result
+documents may partition cases; completeness is derived from their validated union
+against the input policy, never required independently from each document.
+Canonical input/phase/reference ordering and duplicate refusal preserve deterministic
+policy identity. They never reconstruct
+policy from a result. Process validation independently rebuilds the same joins.
+
+Policy, criteria, definitions and all nested reference sources are flattened into
+the request/result input inventories, distinct from execution outputs. Reader
+budgets and fallible close remain authoritative; this migration adds immutable
+Sendable values and no mutable shared state or target-dependent isolation.
+Legacy metric-bearing schemas without definition/policy bindings are refused.
+
+| Boundary | Required behavioral evidence |
+|---|---|
+| Builder/evaluator | Forged permissive tolerance, expected value, definition, source, phase or policy refuses despite unchanged original observations |
+| Applicability | Primary-only passes without oracle/physical links; oracle applicability requires separate observations and all criterion links |
+| Reference authority | Missing/tampered criterion and physical reference refuse; nonmetric smoke/health remain usable |
+| CLI | Actual five-command executable consumes exact inventories, emits truthful refusals and records canonical output identities |
+| Consumers | Host and engine owners pin policy before execution, emit real metric definitions and adopt the new schemas before composed completion |
 
 The domain owns metric meaning, units, extraction conditions and admissible
 operating domain. The application requirement owns the allowed error or circuit
@@ -340,3 +401,28 @@ absent-identity decoding, and rejection of malformed producer tokens. Changes
 to this contract require consumer record-adoption checks as well as the domain
 adapter's actual measured-producer gate; neither proof substitutes for process
 qualification.
+
+## Exact FileSystem Floor Adoption
+
+The manifest adopts CircuiteFoundation `c952ac5` without changing this package's
+production source, policy schemas or qualification authority. The existing local
+reader continues to acquire known identities through bounded `ArtifactAccessing`
+verification and awaits typed session/root termination. Focused reader and actual
+CLI evidence cover exact reload, missing/tampered bytes and purpose-policy refusal.
+CircuiteFoundation owns unknown-identity discovery and its Darwin/Linux backend
+proofs; ToolQualification does not add or execute discovery. Prior qualification
+proofs remain valid where their policy and reconstruction premises are unchanged.
+
+
+## CoreSpice Released-OSDI Dependency Compatibility
+
+The compatibility candidate preserves the complete assessment/schema3 source and
+tests from commit4a2f804, including independently pinned metric authority and
+explicit artifact-close failure. Its dependency changes to public Foundation
+exact26.1018.0, with the resolved graph binding5f132c58209123433e0e479e1ea61096e46061ba.
+This aligns CoreSpice with public swift-osdi1.0.1 without removing required metrics
+or evidence contracts. Native macOS27/Swift6.4.0 verification is owned by the
+CoreSpice migration; it does not establish Linux or older-host execution.
+The historical local c952 dependency remains historical evidence rather than the
+new dependency authority. Publication and a missing package license remain owner
+decisions; a verified local candidate is not a public release.

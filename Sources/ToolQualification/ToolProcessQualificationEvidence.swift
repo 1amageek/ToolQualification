@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 7
+    public static let currentSchemaVersion = 8
 
     public let schemaVersion: Int
     public let qualificationID: String
@@ -174,6 +174,7 @@ public struct ToolProcessQualificationEvidence: Sendable, Hashable, Codable {
             && Set(evidenceIDs).count == evidenceIDs.count
             && !evidenceArtifacts.isEmpty
             && evidenceArtifacts.allSatisfy(Self.isVerifiableArtifact)
+            && scope.assessmentPolicyArtifact.map(inputArtifacts.contains) == true
             && !inputArtifacts.isEmpty
             && inputArtifacts.allSatisfy(Self.isVerifiableArtifact)
             && Set(inputArtifacts.map(Self.artifactIdentityKey)).count == inputArtifacts.count

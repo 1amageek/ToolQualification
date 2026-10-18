@@ -7,6 +7,94 @@ import Testing
 
 @Suite("Tool trust evaluator")
 struct ToolTrustEvaluatorTests {
+    @Test("a primary-only corpus consumes its independently pinned policy without oracle observations")
+    func primaryOnlyCorpusHasNoOracleRequirement() async throws {
+        let fixture = try QualificationFixture()
+        let evidence = try await fixture.corpusEvidence(passing: true)
+        let result = await ToolTrustEvaluator().evaluate(
+            descriptor: fixture.descriptor(level: .corpusChecked, evidence: [evidence]),
+            requirement: fixture.requirement(minimumLevel: .corpusChecked),
+            health: ToolHealthCheckResult(toolID: "native-drc", status: .passed),
+            artifactReader: fixture.reader, evaluatedAt: fixture.checkedAt)
+        #expect(result.status == .eligible)
+    }
+
+    @Test("nonmetric health preserves independent identity scope without an assessment policy")
+    func nonmetricHealthNeedsNoPolicy() async throws {
+        let fixture = try QualificationFixture()
+        var scope = fixture.scope; scope.assessmentPolicyArtifact = nil
+        await fixture.reader.insert(Data([0]), for: fixture.inputArtifact)
+        await fixture.reader.insert(Data([1]), for: fixture.outputArtifact)
+        let result = ToolHealthQualificationResult(resultID: "nonmetric-health", qualificationID: "health-only",
+            toolID: "native-drc", scope: scope, issuer: fixture.issuer,
+            inputArtifacts: [fixture.inputArtifact], outputArtifacts: [fixture.outputArtifact], checkedAt: fixture.checkedAt)
+        let data = try result.canonicalData()
+        let reference = try ArtifactReference(digest: SHA256ContentDigester().digest(data: data),
+            byteCount: UInt64(data.count), descriptor: ArtifactDescriptor(role: .output, kind: .evidence, format: .json))
+        await fixture.reader.insert(data, for: reference)
+        let evidence = ToolEvidence(evidenceID: result.resultID, kind: .healthCheck,
+            artifact: reference, checkedAt: fixture.checkedAt)
+        let descriptor = fixture.descriptor(level: .unknown, evidence: [evidence])
+        let requirement = ToolTrustRequirement(kind: .drc, operationID: "run-drc", minimumLevel: .unknown,
+            requiredQualifiedEvidenceKinds: [.healthCheck], qualificationScope: scope, requireIndependentQualificationEvidence: true)
+        let decision = await ToolTrustEvaluator().evaluate(descriptor: descriptor, requirement: requirement,
+            health: ToolHealthCheckResult(toolID: "native-drc", status: .passed), artifactReader: fixture.reader, evaluatedAt: fixture.checkedAt)
+        #expect(decision.status == .eligible)
+    }
+
+    @Test("direct corpus reconstruction retains and verifies nested model receipts", arguments: ["valid", "missing", "tampered"])
+    func directCorpusReceiptBindings(_ state: String) async throws {
+        let fixture = try QualificationFixture()
+        let prior = try await fixture.corpusEvidence(passing: true)
+        let priorReference = try #require(prior.artifact)
+        let corpus = try ToolCorpusQualificationResult.decodeCanonical(from: await fixture.reader.verifiedData(for: priorReference))
+        let outcome = try #require(corpus.cases.first)
+        let original = try ToolQualificationCaseExecution.decodeCanonical(
+            from: await fixture.reader.verifiedData(for: outcome.originalExecutionArtifact))
+        let receiptData = try ToolQualificationModelExecutionReceipt(caseID: original.caseID,
+            executionID: original.executionID, producer: original.producer, phaseID: "analysis",
+            modelID: "fixture-model", sourceArtifact: fixture.inputArtifact, selectedModelIdentifier: "fixture-model",
+            consumedInstances: ["instance": ["temperature": 300]], inputArtifacts: original.inputArtifacts,
+            resolvedParameters: [:]).canonicalData()
+        func reference(_ data: Data) throws -> ArtifactReference {
+            try ArtifactReference(digest: SHA256ContentDigester().digest(data: data), byteCount: UInt64(data.count),
+                descriptor: ArtifactDescriptor(role: .output, kind: .evidence, format: .json))
+        }
+        let receipt = try reference(receiptData)
+        await fixture.reader.insert(state == "tampered" ? Data("altered receipt".utf8) : receiptData, for: receipt)
+        let originalData = try ToolQualificationCaseExecution(caseID: original.caseID, executionID: original.executionID,
+            producer: original.producer, executableArtifact: original.executableArtifact, inputArtifacts: original.inputArtifacts,
+            phaseIDs: original.phaseIDs, metricPhaseIDs: original.metricPhaseIDs, metricDefinitionArtifacts: original.metricDefinitionArtifacts,
+            modelReceiptArtifacts: [receipt], observedMetrics: original.observedMetrics).canonicalData()
+        let changedOriginal = try reference(originalData)
+        await fixture.reader.insert(originalData, for: changedOriginal)
+        let resultData = try ToolCorpusQualificationResult(resultID: corpus.resultID, qualificationID: corpus.qualificationID,
+            toolID: corpus.toolID, scope: corpus.scope, issuer: corpus.issuer, inputArtifacts: corpus.inputArtifacts,
+            outputArtifacts: [changedOriginal] + (state == "missing" ? [] : [receipt]), cases: [ToolQualificationCaseOutcome(
+                caseID: outcome.caseID, originalExecutionArtifact: changedOriginal, coverageTags: outcome.coverageTags,
+                comparisons: outcome.comparisons)], checkedAt: corpus.checkedAt).canonicalData()
+        let changedResult = try reference(resultData)
+        await fixture.reader.insert(resultData, for: changedResult)
+        let evidence = ToolEvidence(evidenceID: corpus.resultID, kind: .corpus, artifact: changedResult, checkedAt: corpus.checkedAt)
+        let decision = await ToolTrustEvaluator().evaluate(descriptor: fixture.descriptor(level: .corpusChecked, evidence: [evidence]),
+            requirement: fixture.requirement(minimumLevel: .corpusChecked), health: ToolHealthCheckResult(toolID: "native-drc", status: .passed),
+            artifactReader: fixture.reader, evaluatedAt: fixture.checkedAt)
+        #expect(decision.status == (state == "valid" ? .eligible : .rejected))
+    }
+
+    @Test("the expected policy cannot be selected from a corpus output")
+    func rejectsMissingIndependentPolicy() async throws {
+        let fixture = try QualificationFixture()
+        let evidence = try await fixture.corpusEvidence(passing: true)
+        var requirement = fixture.requirement(minimumLevel: .corpusChecked)
+        requirement.assessmentPolicyArtifact = nil
+        let result = await ToolTrustEvaluator().evaluate(
+            descriptor: fixture.descriptor(level: .corpusChecked, evidence: [evidence]),
+            requirement: requirement, health: ToolHealthCheckResult(toolID: "native-drc", status: .passed),
+            artifactReader: fixture.reader, evaluatedAt: fixture.checkedAt)
+        #expect(result.status == .rejected)
+    }
+
     @Test func structurallyInvalidDescriptorIsRejectedAtDirectEvaluatorEntry() async throws {
         let fixture = try QualificationFixture()
         var descriptor = fixture.descriptor(level: .unknown, evidence: [])
@@ -599,12 +687,17 @@ private struct QualificationFixture {
     let executableArtifact: ArtifactReference
     let scope: ToolQualificationScope
     let reader: InMemoryQualificationArtifactReader
+    let assessment: AssessmentFixture
+    let root: URL
 
     init() throws {
         issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1")
         inputArtifact = try Self.artifact(data: Data([0]))
         outputArtifact = try Self.artifact(data: Data([1]))
         executableArtifact = try Self.artifact(data: Data([2]))
+        root = FileManager.default.temporaryDirectory.appending(path: "qualification-assessment-\(UUID().uuidString)")
+        assessment = try AssessmentFixture(root: root, caseID: "case", metricID: "violation-count",
+            originalInputs: [inputArtifact], oracle: false, writeToDisk: false)
         scope = ToolQualificationScope(
             implementationID: "native-drc",
             toolVersion: "1.0.0",
@@ -619,19 +712,21 @@ private struct QualificationFixture {
                 implementationID: "independent-drc",
                 version: "2.0.0",
                 binaryDigest: String(repeating: "e", count: 64)
-            )
+            ), assessmentPolicyArtifact: assessment.policy
         )
         reader = InMemoryQualificationArtifactReader()
     }
 
     func corpusEvidence(passing: Bool, canonical: Bool = true) async throws -> ToolEvidence {
+        for (reference, data) in assessment.dataByReference { await reader.insert(data, for: reference) }
         await reader.insert(Data([0]), for: inputArtifact)
         await reader.insert(Data([1]), for: outputArtifact)
         await reader.insert(Data([2]), for: executableArtifact)
         let originalData = try ToolQualificationCaseExecution(caseID: "case", executionID: "native-drc-case",
             producer: ProducerIdentity(kind: .engine, identifier: scope.implementationID, version: scope.toolVersion),
             executableArtifact: executableArtifact, inputArtifacts: [inputArtifact],
-            phaseIDs: ["analysis"], metricPhaseIDs: ["violation-count": ["analysis"]], modelReceiptArtifacts: [],
+            phaseIDs: ["analysis"], metricPhaseIDs: ["violation-count": ["analysis"]],
+            metricDefinitionArtifacts: ["violation-count": assessment.definition], modelReceiptArtifacts: [],
             observedMetrics: ["violation-count": passing ? 0 : 1]).canonicalData()
         let originalArtifact = try Self.artifact(data: originalData)
         await reader.insert(originalData, for: originalArtifact)
@@ -641,7 +736,7 @@ private struct QualificationFixture {
             toolID: "native-drc",
             scope: scope,
             issuer: issuer,
-            inputArtifacts: [inputArtifact],
+            inputArtifacts: [inputArtifact] + assessment.inputs,
             outputArtifacts: [outputArtifact, originalArtifact],
             cases: [ToolQualificationCaseOutcome(
                 caseID: "case",
@@ -651,7 +746,7 @@ private struct QualificationFixture {
                     metricID: "violation-count",
                     observed: passing ? 0 : 1,
                     expected: 0,
-                    absoluteTolerance: 0
+                    absoluteTolerance: 0, criterionArtifact: assessment.primaryCriterion
                 )]
             )],
             checkedAt: checkedAt
@@ -687,7 +782,7 @@ private struct QualificationFixture {
             kind: .drc,
             version: "1.0.0",
             capabilities: capabilities,
-            trustProfile: ToolTrustProfile(level: level, evidence: evidence),
+            trustProfile: ToolTrustProfile(level: level, evidence: evidence, assessmentPolicyArtifact: assessment.policy),
             environment: ToolEnvironment(platform: "macOS", requiredAssets: [])
         )
     }
@@ -704,7 +799,7 @@ private struct QualificationFixture {
             requiredInputFormats: [.oasis],
             requiredOutputFormats: [.json],
             maximumEvidenceAgeSeconds: maximumEvidenceAgeSeconds,
-            qualificationScope: qualificationScope
+            qualificationScope: qualificationScope, assessmentPolicyArtifact: assessment.policy
         )
     }
 

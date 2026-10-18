@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolOracleQualificationResult: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 6
 
     public let schemaVersion: Int
     public let resultID: String

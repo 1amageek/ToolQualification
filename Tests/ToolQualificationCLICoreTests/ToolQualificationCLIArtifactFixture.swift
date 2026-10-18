@@ -31,7 +31,8 @@ struct ToolQualificationCLIArtifactFixture {
         inputs: [ArtifactReference],
         source: ArtifactReference,
         modelIDs: [String] = [],
-        observations: [String: Double]
+        observations: [String: Double],
+        definitions: [String: ArtifactReference]
     ) throws -> (original: ArtifactReference, receipts: [ArtifactReference]) {
         let producer = try ProducerIdentity(kind: .engine, identifier: implementationID, version: version)
         let receipts = try modelIDs.enumerated().map { index, modelID in
@@ -48,7 +49,7 @@ struct ToolQualificationCLIArtifactFixture {
                 caseID: caseID, executionID: executionID, producer: producer,
                 executableArtifact: executable, inputArtifacts: inputs,
                 phaseIDs: ["analysis"], metricPhaseIDs: observations.mapValues { _ in ["analysis"] },
-                modelReceiptArtifacts: receipts, observedMetrics: observations
+                metricDefinitionArtifacts: definitions, modelReceiptArtifacts: receipts, observedMetrics: observations
             ).canonicalData())
         return (original, receipts)
     }
@@ -95,28 +96,21 @@ struct ToolQualificationCLIArtifactFixture {
         root: URL,
         named name: String = "artifact-availability.json"
     ) throws -> URL {
-        let qualificationRoot = root.appending(path: "qualification")
-        let keys = try FileManager.default.contentsOfDirectory(
-            at: qualificationRoot,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ).sorted { $0.path < $1.path }
-        let artifacts = try keys.compactMap {
-            url -> (reference: ArtifactReference, relativePath: String)? in
-            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-                return nil
+        var artifacts: [(reference: ArtifactReference, relativePath: String)] = []
+        for directory in ["qualification", "assessment"] {
+            let directoryURL = root.appending(path: directory)
+            guard FileManager.default.fileExists(atPath: directoryURL.path) else { continue }
+            let keys = try FileManager.default.contentsOfDirectory(at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+            for url in keys.sorted(by: { $0.path < $1.path }) {
+                guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                let relativePath = directory + "/" + url.lastPathComponent
+                let reference = try LocalArtifactReferencer().reference(
+                    ArtifactLocator(location: try ArtifactLocation(workspaceRelativePath: relativePath),
+                        role: directory == "assessment" ? .input : .output,
+                        kind: directory == "assessment" ? .input : .evidence, format: .json), relativeTo: root)
+                artifacts.append((reference, relativePath))
             }
-            let relativePath = "qualification/\(url.lastPathComponent)"
-            let reference = try LocalArtifactReferencer().reference(
-                ArtifactLocator(
-                    location: try ArtifactLocation(workspaceRelativePath: relativePath),
-                    role: .output,
-                    kind: .evidence,
-                    format: .json
-                ),
-                relativeTo: root
-            )
-            return (reference, relativePath)
         }
         return try writeInventory(root: root, artifacts: artifacts, named: name)
     }

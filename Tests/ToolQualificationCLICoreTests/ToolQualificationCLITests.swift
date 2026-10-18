@@ -539,7 +539,7 @@ struct ToolQualificationCLITests {
             ruleDeck: deck,
             oracleExecutable: oracleTool
         )
-        let scope = ToolQualificationScope(
+        var scope = ToolQualificationScope(
             implementationID: "magic-pex",
             toolVersion: "8.3.652",
             binaryDigest: tool.digest.hexadecimalValue,
@@ -556,13 +556,15 @@ struct ToolQualificationCLITests {
             )
         )
         let input = try validationArtifact("input", root: root)
+        let assessment = try AssessmentFixture(root: root, caseID: "case", metricID: "case-result", originalInputs: [input])
+        scope.assessmentPolicyArtifact = assessment.policy
         let executionFixture = try ToolQualificationCLIArtifactFixture()
         let output = try executionFixture.writeExecution(root: root, caseID: "case", executionID: "output",
             implementationID: scope.implementationID, version: scope.toolVersion, executable: tool,
-            inputs: [input], source: input, observations: ["case-result": 0]).original
+            inputs: [input], source: input, observations: ["case-result": 0], definitions: ["case-result": assessment.definition]).original
         let oracleOutput = try executionFixture.writeExecution(root: root, caseID: "case", executionID: "oracle-output",
             implementationID: "calibre-pex", version: "2026.1", executable: oracleTool,
-            inputs: [input], source: input, observations: ["case-result": 0]).original
+            inputs: [input], source: input, observations: ["case-result": 0], definitions: ["case-result": assessment.definition]).original
         let issuer = try ProducerIdentity(kind: .engine, identifier: "qualification-runner", version: "1.0.0")
         let checkedAt = Date(timeIntervalSince1970: 120)
         let corpus = try validationArtifact(
@@ -574,13 +576,13 @@ struct ToolQualificationCLITests {
                 toolID: "magic-pex",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
+                inputArtifacts: [input] + assessment.inputs,
                 outputArtifacts: [output],
                 cases: [ToolQualificationCaseOutcome(
                     caseID: "case",
                     originalExecutionArtifact: output,
                     coverageTags: ["fixture"],
-                    comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                    comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0, criterionArtifact: assessment.primaryCriterion)]
                 )],
                 checkedAt: checkedAt
             ).canonicalData()
@@ -595,7 +597,7 @@ struct ToolQualificationCLITests {
                 oracleToolID: "calibre-pex",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
+                inputArtifacts: [input] + assessment.inputs,
                 primaryOutputArtifacts: [output],
                 oracleOutputArtifacts: [oracleOutput],
                 cases: [ToolOracleCaseComparison(
@@ -604,18 +606,18 @@ struct ToolQualificationCLITests {
                         caseID: "case",
                         originalExecutionArtifact: output,
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0, criterionArtifact: assessment.primaryCriterion)]
                     ),
                     oracle: ToolQualificationCaseOutcome(
                         caseID: "case",
                         originalExecutionArtifact: oracleOutput,
                         coverageTags: ["fixture"],
-                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0)]
+                        comparisons: [ToolQualificationMetricComparison(metricID: "case-result", observed: 0, expected: 0, criterionArtifact: assessment.primaryCriterion)]
                     ),
                     agreementComparisons: [ToolOracleMetricComparison(
                         metricID: "case-result",
                         primaryObserved: 0,
-                        oracleObserved: 0
+                        oracleObserved: 0, criterionArtifact: assessment.agreementCriterion
                     )]
                 )],
                 checkedAt: checkedAt
@@ -630,7 +632,7 @@ struct ToolQualificationCLITests {
                 toolID: "magic-pex",
                 scope: scope,
                 issuer: issuer,
-                inputArtifacts: [input],
+                inputArtifacts: [input] + assessment.inputs,
                 outputArtifacts: [output],
                 checkedAt: checkedAt
             ).canonicalData()
@@ -643,7 +645,7 @@ struct ToolQualificationCLITests {
                 corpusResultArtifacts: [corpus],
                 oracleResultArtifacts: [oracle],
                 healthResultArtifacts: [health],
-                inputArtifacts: [input],
+                inputArtifacts: [input] + assessment.inputs,
                 outputArtifacts: [output, oracleOutput],
                 qualifiedAt: Date(timeIntervalSince1970: 100),
                 expiresAt: Date(timeIntervalSince1970: 200)

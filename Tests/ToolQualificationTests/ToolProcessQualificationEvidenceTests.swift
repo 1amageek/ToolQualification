@@ -29,7 +29,7 @@ struct ToolProcessQualificationEvidenceTests {
             ruleDeck: deck,
             oracleExecutable: oracleTool
         )
-        let scope = ToolQualificationScope(
+        var scope = ToolQualificationScope(
             implementationID: "magic-pex",
             toolVersion: "8.3.489",
             binaryDigest: tool.digest.hexadecimalValue,
@@ -47,6 +47,7 @@ struct ToolProcessQualificationEvidenceTests {
         )
         let artifacts = try ["corpus", "oracle", "health", "input", "output"]
             .map { try artifact($0, root: root) }
+        scope.assessmentPolicyArtifact = artifacts[3]
         let evidence = ToolProcessQualificationEvidence(
             qualificationID: "process-qualification",
             toolID: "magic-pex",

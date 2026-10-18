@@ -2,7 +2,7 @@ import Foundation
 import CircuiteFoundation
 
 public struct ToolCorpusQualificationResult: Sendable, Hashable, Codable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
 
     public let schemaVersion: Int
     public let resultID: String
