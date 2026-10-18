@@ -404,7 +404,7 @@ qualification.
 
 ## Exact FileSystem Floor Adoption
 
-The manifest adopts CircuiteFoundation `c952ac5` without changing this package's
+The earlier local adoption used CircuiteFoundation `c952ac5` without changing this package's
 production source, policy schemas or qualification authority. The existing local
 reader continues to acquire known identities through bounded `ArtifactAccessing`
 verification and awaits typed session/root termination. Focused reader and actual
@@ -416,13 +416,14 @@ proofs remain valid where their policy and reconstruction premises are unchanged
 
 ## CoreSpice Released-OSDI Dependency Compatibility
 
-The compatibility candidate preserves the complete assessment/schema3 source and
-tests from commit4a2f804, including independently pinned metric authority and
+This release preserves the complete assessment/schema 3 source and
+tests from commit `4a2f804`, including independently pinned metric authority and
 explicit artifact-close failure. Its dependency changes to public Foundation
-exact26.1018.0, with the resolved graph binding5f132c58209123433e0e479e1ea61096e46061ba.
-This aligns CoreSpice with public swift-osdi1.0.1 without removing required metrics
-or evidence contracts. Native macOS27/Swift6.4.0 verification is owned by the
+exact `26.1018.0`, with the resolved graph binding `5f132c58209123433e0e479e1ea61096e46061ba`.
+This aligns CoreSpice with public swift-osdi `1.0.1` without removing required metrics
+or evidence contracts. Native macOS 27/Swift 6.4.0 verification is owned by the
 CoreSpice migration; it does not establish Linux or older-host execution.
 The historical local c952 dependency remains historical evidence rather than the
-new dependency authority. Publication and a missing package license remain owner
-decisions; a verified local candidate is not a public release.
+new dependency authority. The owner authorized this compatibility release under
+the [MIT License](LICENSE). The stable `26.1018.0` tag identifies the exact public
+source; retained Native evidence does not qualify a domain tool or physical model.
