@@ -292,3 +292,13 @@ swift build --build-tests -j 4
 /usr/bin/perl -e 'alarm shift; exec @ARGV' 60 \
   xcrun xctest -XCTest '<Module.Suite/test()>' <bundle.xctest>
 ```
+
+## Stable compatibility release
+
+Version `26.1021.0` aligns the dependency floor with CircuiteFoundation exact
+`26.1021.0` at `4d03b5a561c82a756aaf93860f657733371538dc`.
+The assessment/schema 3 API, CLI and trust semantics are unchanged. This is a
+source-only compatibility patch under the existing MIT license. Publication is
+established by the verified tag, source archive and independent stable-version
+consumer, rather than prepared documentation. See the
+[dependency contract](DESIGN.md#stable-foundation-compatibility-patch-2610210).

@@ -414,7 +414,7 @@ proofs; ToolQualification does not add or execute discovery. Prior qualification
 proofs remain valid where their policy and reconstruction premises are unchanged.
 
 
-## CoreSpice Released-OSDI Dependency Compatibility
+## Historical CoreSpice Released-OSDI Dependency Compatibility
 
 This release preserves the complete assessment/schema 3 source and
 tests from commit `4a2f804`, including independently pinned metric authority and
@@ -427,3 +427,17 @@ The historical local c952 dependency remains historical evidence rather than the
 new dependency authority. The owner authorized this compatibility release under
 the [MIT License](LICENSE). The stable `26.1018.0` tag identifies the exact public
 source; retained Native evidence does not qualify a domain tool or physical model.
+
+## Stable Foundation Compatibility Patch (26.1021.0)
+
+This source-only compatibility release changes the Foundation requirement to exact
+stable `26.1021.0`, binding `4d03b5a561c82a756aaf93860f657733371538dc`.
+Its additive managed-cost APIs do not replace the existing evidence factory,
+digest, schema, trust-policy or artifact ownership semantics used here.
+All ToolQualification production sources, tests, products and licenses remain
+identical to `601ff5933396be4ba62c77b8bb0502e2f601f159`.
+The old `26.1018.0` tag and its qualification receipts remain immutable.
+Fresh isolated dependency resolution, Native library/CLI tests and an independent
+exact-version consumer qualify this dependency boundary. Historical domain/model
+proofs remain scoped to their original inputs; this patch grants no new tool,
+model, corner or process qualification.
