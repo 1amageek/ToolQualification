@@ -441,3 +441,18 @@ Fresh isolated dependency resolution, Native library/CLI tests and an independen
 exact-version consumer qualify this dependency boundary. Historical domain/model
 proofs remain scoped to their original inputs; this patch grants no new tool,
 model, corner or process qualification.
+
+
+## Stable Foundation Successor (26.1021.1)
+
+The source-only candidate requires exact CircuiteFoundation 26.1021.1 from its
+canonical public HTTPS repository. Its public tag binds 7b5ab9cfcd89eccd04e98fb8355bd8ed4d5596c3.
+Fresh canonical resolution must bind that same version and commit before local
+qualification. A direct revision is not a substitute. The SDK remains a sibling
+consumer rather than a dependency.
+
+All ToolQualification production/test/tool source, products, modes and licenses
+remain identical to public a72a86f54df23f772f201d2c7366fb1fd7ea8c6a. Native
+library/CLI and fresh public exact-version consumer gates own this dependency
+boundary. Unchanged domain/model evidence retains its original bindings; no new
+qualification is inferred. Existing tags, including 26.1021.0, remain immutable.

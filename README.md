@@ -302,3 +302,14 @@ source-only compatibility patch under the existing MIT license. Publication is
 established by the verified tag, source archive and independent stable-version
 consumer, rather than prepared documentation. See the
 [dependency contract](DESIGN.md#stable-foundation-compatibility-patch-2610210).
+
+
+## Stable compatibility successor
+
+The source-only 26.1021.1 candidate changes only the dependency selector, actual
+resolved lock and release documentation, retaining public 26.1021.0 implementation
+and tests. Canonical HTTPS exact CircuiteFoundation 26.1021.1 binds
+`7b5ab9cfcd89eccd04e98fb8355bd8ed4d5596c3`. Native library/CLI qualification precedes
+publication; the fresh public exact-version consumer follows the new TQ tag.
+Prepared metadata alone establishes neither qualification nor publication.
+See the [owning contract](DESIGN.md#stable-foundation-successor-2610211).
